@@ -248,8 +248,16 @@ function M.embed_snapshot(png_bytes, snapshot)
     return nil, encode_err
   end
 
-  local iend = chunks[#chunks]
-  return png_bytes:sub(1, iend.start - 1) .. metadata .. png_bytes:sub(iend.start), nil
+  local output = { png_bytes:sub(1, #PNG_SIGNATURE) }
+  for _, chunk in ipairs(chunks) do
+    if chunk.type == "IEND" then
+      output[#output + 1] = metadata
+    end
+    if not matching_metadata(png_bytes, chunk) then
+      output[#output + 1] = png_bytes:sub(chunk.start, chunk.finish)
+    end
+  end
+  return table.concat(output), nil
 end
 
 function M.extract_snapshot(png_bytes)

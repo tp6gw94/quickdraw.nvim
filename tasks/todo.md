@@ -63,15 +63,15 @@
 
 **Acceptance criteria:**
 
-- [ ] Embedding removes all existing matching Quickdraw chunks—including duplicate, malformed, or unsupported payloads—and writes exactly one current snapshot when PNG structure and CRCs are valid.
-- [ ] Non-Quickdraw chunks retain their original bytes and relative order, `IDAT` remains byte-identical, metadata is inserted before `IEND`, and the input string is unchanged.
-- [ ] One snapshot payload strictly larger than 16 MiB round-trips; the PNG 31-bit chunk guard is enforced without a smaller application limit.
+- [x] Embedding removes all existing matching Quickdraw chunks—including duplicate, malformed, or unsupported payloads—and writes exactly one current snapshot when PNG structure and CRCs are valid.
+- [x] Non-Quickdraw chunks retain their original bytes and relative order, `IDAT` remains byte-identical, metadata is inserted before `IEND`, and the input string is unchanged.
+- [x] One snapshot payload strictly larger than 16 MiB round-trips; the PNG 31-bit chunk guard is enforced without a smaller application limit.
 
 **Verification:**
 
-- [ ] `make test`
-- [ ] `stylua --check lua tests`
-- [ ] `git diff --check`
+- [x] `make test`
+- [ ] `stylua --check lua tests` — `tests/minimal_init.lua` is pre-existing and not formatted; changed files pass the check.
+- [x] `git diff --check`
 
 **Dependencies:** Task 2
 
@@ -84,9 +84,9 @@
 
 ## Checkpoint: Metadata feature
 
-- [ ] The full public API satisfies the approved return contract.
-- [ ] Round-trip, repair, preservation, error, and large-payload tests pass.
-- [ ] No runtime dependency or sidecar file was added.
+- [x] The full public API satisfies the approved return contract.
+- [x] Round-trip, repair, preservation, error, and large-payload tests pass.
+- [x] No runtime dependency or sidecar file was added.
 
 ## Task 4: Enforce formatting and Neovim compatibility in CI
 

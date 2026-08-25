@@ -84,6 +84,26 @@ local function metadata_chunks(bytes)
   return chunks
 end
 
+local function png_chunks(bytes)
+  local chunks = {}
+  local position = 9
+  while position <= #bytes do
+    local length = read_u32(bytes, position)
+    local finish = position + length + 11
+    chunks[#chunks + 1] = {
+      data = bytes:sub(position + 8, position + 7 + length),
+      raw = bytes:sub(position, finish),
+      type = bytes:sub(position + 4, position + 7),
+    }
+    position = finish + 1
+  end
+  return chunks
+end
+
+local function is_quickdraw_chunk(chunk_record)
+  return chunk_record.type == "iTXt" and chunk_record.data:sub(1, 15) == "quickdraw.nvim\0"
+end
+
 describe("quickdraw PNG parser", function()
   it("accepts a valid PNG without metadata", function()
     local snapshot, err = png.extract_snapshot(read_fixture())
@@ -127,6 +147,68 @@ describe("quickdraw PNG parser", function()
       image = "data:image/png;base64,iVBORw0KGgo=",
       title = "画笔 ✨",
     }
+    local encoded, embed_err = png.embed_snapshot(read_fixture(), expected)
+
+    assert.is_not_nil(encoded)
+    assert.is_nil(embed_err)
+    assert.are.same(expected, select(1, png.extract_snapshot(encoded)))
+  end)
+
+  it("replaces malformed, unsupported, and duplicate Quickdraw chunks", function()
+    local input = png_with_chunks(
+      chunk("iTXt", "quickdraw.nvim\0"),
+      metadata_chunk({ schema = "quickdraw.nvim", snapshot = { stale = true }, version = 2 }),
+      metadata_chunk({ schema = "quickdraw.nvim", snapshot = { stale = true }, version = 1 })
+    )
+    local expected = { fresh = true }
+
+    local encoded, embed_err = png.embed_snapshot(input, expected)
+
+    assert.is_not_nil(encoded)
+    assert.is_nil(embed_err)
+    local matching = {}
+    for _, chunk_record in ipairs(png_chunks(encoded)) do
+      if is_quickdraw_chunk(chunk_record) then
+        matching[#matching + 1] = chunk_record
+      end
+    end
+    assert.are.equal(1, #matching)
+    assert.are.same(expected, select(1, png.extract_snapshot(encoded)))
+  end)
+
+  it("preserves unrelated chunks and inserts metadata before IEND", function()
+    local input = png_with_chunks(chunk("tEXt", "before"), chunk("iTXt", "other\0\0\0\0\0preserve"))
+    local original_chunks = png_chunks(input)
+    local original_nonmatching = {}
+    for _, chunk_record in ipairs(original_chunks) do
+      if not is_quickdraw_chunk(chunk_record) then
+        original_nonmatching[#original_nonmatching + 1] = chunk_record.raw
+      end
+    end
+
+    local original_input = input
+    local encoded, embed_err = png.embed_snapshot(input, { preserved = true })
+
+    assert.is_not_nil(encoded)
+    assert.is_nil(embed_err)
+    assert.are.equal(original_input, input)
+
+    local output_chunks = png_chunks(encoded)
+    local output_nonmatching = {}
+    for _, chunk_record in ipairs(output_chunks) do
+      if not is_quickdraw_chunk(chunk_record) then
+        output_nonmatching[#output_nonmatching + 1] = chunk_record.raw
+      end
+    end
+    assert.are.same(original_nonmatching, output_nonmatching)
+    assert.are.equal("iTXt", output_chunks[#output_chunks - 1].type)
+    assert.are.equal("IEND", output_chunks[#output_chunks].type)
+    assert.are.equal(original_chunks[2].raw, output_chunks[2].raw)
+  end)
+
+  it("round-trips a snapshot strictly larger than 16 MiB", function()
+    local expected = { data = string.rep("x", 16 * 1024 * 1024 + 1) }
+
     local encoded, embed_err = png.embed_snapshot(read_fixture(), expected)
 
     assert.is_not_nil(encoded)
