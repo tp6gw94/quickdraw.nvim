@@ -12,14 +12,14 @@ jobs:
         with:
           version: latest
           token: ${{ secrets.GITHUB_TOKEN }}
-          args: --color always --check lua
+          args: --color always --check lua tests
 
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        nvim-versions: ['stable', 'nightly']
+        nvim-versions: ['v0.8.0', 'stable', 'nightly']
     name: test
     steps:
       - name: checkout

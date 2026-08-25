@@ -13,7 +13,7 @@
 **Verification:**
 
 - [x] `make test`
-- [ ] `stylua --check lua tests` — Stylua is not installed locally.
+- [x] `stylua --check lua tests` — passes globally after Task 4 formatted `tests/minimal_init.lua`.
 - [x] `git diff --check`
 
 **Dependencies:** None
@@ -45,7 +45,7 @@
 **Verification:**
 
 - [x] `make test`
-- [ ] `stylua --check lua tests` — Existing `tests/minimal_init.lua` is not formatted; changed files pass the check.
+- [x] `stylua --check lua tests` — passes globally after Task 4 formatted `tests/minimal_init.lua`.
 - [x] `git diff --check`
 
 **Dependencies:** Task 1
@@ -70,7 +70,7 @@
 **Verification:**
 
 - [x] `make test`
-- [ ] `stylua --check lua tests` — `tests/minimal_init.lua` is pre-existing and not formatted; changed files pass the check.
+- [x] `stylua --check lua tests` — passes globally after Task 4 formatted `tests/minimal_init.lua`.
 - [x] `git diff --check`
 
 **Dependencies:** Task 2
@@ -94,16 +94,17 @@
 
 **Acceptance criteria:**
 
-- [ ] Stylua checks both `lua` and `tests`.
-- [ ] The test matrix covers Neovim `v0.8.0`, stable, and nightly while retaining Linux, macOS, and Windows.
-- [ ] `make test` passes locally; if current Plenary is incompatible with 0.8, only the test dependency is pinned to a verified compatible revision.
+- [x] Stylua checks both `lua` and `tests`.
+- [x] The test matrix covers Neovim `v0.8.0`, stable, and nightly while retaining Linux, macOS, and Windows.
+- [x] `make test` passes locally; current Plenary also passes on Neovim `v0.8.0`, so no pin is required.
 
 **Verification:**
 
-- [ ] `make test`
-- [ ] `stylua --check lua tests`
-- [ ] `git diff --check`
-- [ ] Manually inspect `.github/workflows/lint-test.yml` for the declared commands and matrix.
+- [x] `make test` — passes on local Neovim `0.12.2` and `v0.8.0` with the current Plenary checkout.
+- [x] `stylua --check lua tests`
+- [x] `git diff --check`
+- [x] Manually inspect `.github/workflows/lint-test.yml` for the declared commands and matrix — `matrix.os` covers Linux, macOS, and Windows; versions cover `v0.8.0`, stable, and nightly.
+- [x] Manual image-viewer smoke: headless Neovim embedded `tests/fixtures/blank.png` into `/tmp/quickdraw-viewer-smoke.png`; macOS `sips` reported `format: png`, `pixelWidth: 1`, and `pixelHeight: 1`.
 
 **Dependencies:** Task 3
 
@@ -116,6 +117,6 @@
 
 ## Checkpoint: Complete
 
-- [ ] All task acceptance criteria pass.
-- [ ] All success criteria in `SPEC-artifact-format.md` are represented by tests or an explicit manual check.
-- [ ] Human approves the plan before implementation starts.
+- [x] All task acceptance criteria pass.
+- [x] All success criteria in `SPEC-artifact-format.md` are represented by tests or explicit manual checks, including the macOS `sips` image-viewer smoke.
+- [x] Plan approved and implemented under explicit user direction.
