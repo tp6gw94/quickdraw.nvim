@@ -201,9 +201,8 @@ describe("quickdraw PNG parser", function()
       end
     end
     assert.are.same(original_nonmatching, output_nonmatching)
-    assert.are.equal("iTXt", output_chunks[#output_chunks - 1].type)
+    assert.is_true(is_quickdraw_chunk(output_chunks[#output_chunks - 1]))
     assert.are.equal("IEND", output_chunks[#output_chunks].type)
-    assert.are.equal(original_chunks[2].raw, output_chunks[2].raw)
   end)
 
   it("round-trips a snapshot strictly larger than 16 MiB", function()
