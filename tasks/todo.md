@@ -38,15 +38,15 @@
 
 **Acceptance criteria:**
 
-- [ ] Keyed, empty-object, Unicode, and data-URL snapshots embed and extract with the approved schema and uncompressed iTXt layout.
-- [ ] Extraction rejects malformed matching iTXt data, malformed JSON, invalid schema/object shape, unsupported versions, and duplicate metadata with stable errors.
-- [ ] Encoding failures return `ENCODE_FAILED`; inputs remain unchanged and failures return no partial output.
+- [x] Keyed, empty-object, Unicode, and data-URL snapshots embed and extract with the approved schema and uncompressed iTXt layout.
+- [x] Extraction rejects malformed matching iTXt data, malformed JSON, invalid schema/object shape, unsupported versions, and duplicate metadata with stable errors.
+- [x] Encoding failures return `ENCODE_FAILED`; inputs remain unchanged and failures return no partial output.
 
 **Verification:**
 
-- [ ] `make test`
-- [ ] `stylua --check lua tests`
-- [ ] `git diff --check`
+- [x] `make test`
+- [ ] `stylua --check lua tests` — Existing `tests/minimal_init.lua` is not formatted; changed files pass the check.
+- [x] `git diff --check`
 
 **Dependencies:** Task 1
 

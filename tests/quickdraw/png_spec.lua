@@ -1,4 +1,6 @@
+local bit = require("bit")
 local png = require("quickdraw.png")
+local is_list = vim.islist or vim.tbl_islist
 
 local function read_fixture()
   local file = assert(io.open("tests/fixtures/blank.png", "rb"))
@@ -14,12 +16,172 @@ local function error_code(bytes)
   return err.code
 end
 
+local function u32(value)
+  return string.char(
+    bit.band(bit.rshift(value, 24), 0xFF),
+    bit.band(bit.rshift(value, 16), 0xFF),
+    bit.band(bit.rshift(value, 8), 0xFF),
+    bit.band(value, 0xFF)
+  )
+end
+
+local function read_u32(bytes, offset)
+  return ((string.byte(bytes, offset) * 256 + string.byte(bytes, offset + 1)) * 256 + string.byte(bytes, offset + 2))
+      * 256
+    + string.byte(bytes, offset + 3)
+end
+
+local crc_table = {}
+for index = 0, 255 do
+  local value = index
+  for _ = 1, 8 do
+    if bit.band(value, 1) ~= 0 then
+      value = bit.bxor(bit.rshift(value, 1), 0xEDB88320)
+    else
+      value = bit.rshift(value, 1)
+    end
+  end
+  crc_table[index] = value
+end
+
+local function crc32(bytes)
+  local crc = bit.bnot(0)
+  for index = 1, #bytes do
+    crc = bit.bxor(bit.rshift(crc, 8), crc_table[bit.band(bit.bxor(crc, string.byte(bytes, index)), 0xFF)])
+  end
+  return bit.bnot(crc)
+end
+
+local function chunk(chunk_type, data)
+  local payload = chunk_type .. data
+  return u32(#data) .. payload .. u32(crc32(payload))
+end
+
+local function itxt_data(json)
+  return "quickdraw.nvim\0\0\0\0\0" .. json
+end
+
+local function png_with_chunks(...)
+  local fixture = read_fixture()
+  return fixture:sub(1, -13) .. table.concat({ ... }) .. fixture:sub(-12)
+end
+
+local function metadata_chunk(envelope)
+  return chunk("iTXt", itxt_data(vim.json.encode(envelope)))
+end
+
+local function metadata_chunks(bytes)
+  local chunks = {}
+  local position = 9
+  while position <= #bytes do
+    local length = read_u32(bytes, position)
+    local chunk_type = bytes:sub(position + 4, position + 7)
+    if chunk_type == "iTXt" then
+      chunks[#chunks + 1] = bytes:sub(position + 8, position + 7 + length)
+    end
+    position = position + length + 12
+  end
+  return chunks
+end
+
 describe("quickdraw PNG parser", function()
   it("accepts a valid PNG without metadata", function()
     local snapshot, err = png.extract_snapshot(read_fixture())
 
     assert.is_nil(snapshot)
     assert.is_nil(err)
+  end)
+
+  it("round-trips a keyed snapshot in an uncompressed Quickdraw iTXt chunk", function()
+    local input = read_fixture()
+    local expected = { name = "line", points = { { x = 1, y = 2 } } }
+    local encoded, embed_err = png.embed_snapshot(input, expected)
+
+    assert.is_not_nil(encoded)
+    assert.is_nil(embed_err)
+    assert.are.same(expected, select(1, png.extract_snapshot(encoded)))
+
+    local metadata = metadata_chunks(encoded)
+    assert.are.equal(1, #metadata)
+    assert.are.equal("quickdraw.nvim", metadata[1]:sub(1, 14))
+    assert.are.equal("\0\0\0\0\0", metadata[1]:sub(15, 19))
+    assert.are.same(
+      { schema = "quickdraw.nvim", snapshot = expected, version = 1 },
+      vim.json.decode(metadata[1]:sub(20))
+    )
+  end)
+
+  it("round-trips an empty snapshot as a JSON object", function()
+    local encoded, embed_err = png.embed_snapshot(read_fixture(), {})
+    assert.is_not_nil(encoded)
+    assert.is_nil(embed_err)
+
+    local snapshot, extract_err = png.extract_snapshot(encoded)
+    assert.is_nil(extract_err)
+    assert.is_false(is_list(snapshot))
+    assert.are.same({}, snapshot)
+  end)
+
+  it("round-trips Unicode and data URLs", function()
+    local expected = {
+      image = "data:image/png;base64,iVBORw0KGgo=",
+      title = "画笔 ✨",
+    }
+    local encoded, embed_err = png.embed_snapshot(read_fixture(), expected)
+
+    assert.is_not_nil(encoded)
+    assert.is_nil(embed_err)
+    assert.are.same(expected, select(1, png.extract_snapshot(encoded)))
+  end)
+
+  it("rejects malformed matching iTXt layout", function()
+    local bytes = png_with_chunks(chunk("iTXt", "quickdraw.nvim\0"))
+    assert.are.equal("INVALID_METADATA", error_code(bytes))
+  end)
+
+  it("rejects malformed metadata JSON", function()
+    local bytes = png_with_chunks(chunk("iTXt", itxt_data("{")))
+    assert.are.equal("INVALID_METADATA", error_code(bytes))
+  end)
+
+  it("rejects a matching iTXt chunk with an invalid compression flag", function()
+    local envelope = { schema = "quickdraw.nvim", snapshot = vim.empty_dict(), version = 1 }
+    local data = itxt_data(vim.json.encode(envelope))
+    data = data:sub(1, 15) .. string.char(1) .. data:sub(17)
+
+    assert.are.equal("INVALID_METADATA", error_code(png_with_chunks(chunk("iTXt", data))))
+  end)
+
+  it("rejects invalid metadata schema and object shapes", function()
+    local wrong_schema = png_with_chunks(metadata_chunk({ schema = "other", snapshot = {}, version = 1 }))
+    assert.are.equal("INVALID_METADATA", error_code(wrong_schema))
+
+    local array_envelope = png_with_chunks(chunk("iTXt", itxt_data("[]")))
+    assert.are.equal("INVALID_METADATA", error_code(array_envelope))
+
+    local array_snapshot =
+      png_with_chunks(metadata_chunk({ schema = "quickdraw.nvim", snapshot = { "item" }, version = 1 }))
+    assert.are.equal("INVALID_METADATA", error_code(array_snapshot))
+  end)
+
+  it("rejects unsupported metadata versions", function()
+    local bytes = png_with_chunks(metadata_chunk({ schema = "quickdraw.nvim", snapshot = {}, version = 2 }))
+    assert.are.equal("UNSUPPORTED_VERSION", error_code(bytes))
+  end)
+
+  it("rejects duplicate Quickdraw metadata", function()
+    local envelope = { schema = "quickdraw.nvim", snapshot = {}, version = 1 }
+    local bytes = png_with_chunks(metadata_chunk(envelope), metadata_chunk(envelope))
+    assert.are.equal("DUPLICATE_METADATA", error_code(bytes))
+  end)
+
+  it("returns ENCODE_FAILED without a partial output", function()
+    local input = read_fixture()
+    local output, err = png.embed_snapshot(input, { callback = function() end })
+
+    assert.is_nil(output)
+    assert.are.equal("ENCODE_FAILED", err.code)
+    assert.are.equal(input, read_fixture())
   end)
 
   it("uses the standard IEND CRC vector", function()
