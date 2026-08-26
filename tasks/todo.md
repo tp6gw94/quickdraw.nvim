@@ -1,45 +1,46 @@
-# Tasks: neovim-integration
+# Tasks: Blank Artifact Creation and Save Status
 
-## Task 1: Implement configuration and input/path primitives
+## Task 1: Add exclusive blank-artifact creation to editor sessions
 
-**Description:** Add the public `require("quickdraw").setup()` module with deterministic default replacement, then implement the minimum private helpers for basename validation, absolute-path classification, document-relative filesystem targets, Markdown destinations, and platform separator normalization. This task does not start sessions or mutate buffers.
+**Description:** Add `create = true` to the internal session start contract. Use the canonical runtime blank PNG, embed an empty Quickdraw snapshot in a verified temporary inode, prepare the new session, and atomically hard-link that inode to the absent target without replace semantics.
 
 **Acceptance criteria:**
 
-- [x] `setup()` defaults to literal `./assets`, accepts one non-empty string `path`, replaces prior configuration from defaults, rejects unknown/invalid input without partial state changes, and does not expand `~`, environment variables, or globs.
-- [x] Names accept a safe Unicode basename with optional `.png`, normalize one lowercase suffix, and reject empty/traversal/separator/control/whitespace/Markdown-delimiter input.
-- [x] Relative targets derive from the saved Markdown document directory; POSIX, Windows drive, and UNC absolute paths remain absolute, with `/` used for Markdown destinations.
+- [x] A missing prompted `create = true` target and a missing cursor-linked `create = false` target both become valid transparent 1 x 1 Quickdraw PNGs with empty object snapshots before session success.
+- [x] Prompted creation checks first; any existing file, directory, or symbolic link, including one created immediately before commit, makes the no-replace link return `TARGET_EXISTS` and remains unchanged.
+- [x] Staging write, verification, close, server-preparation, hard-link, and unsupported-filesystem failures return a non-empty sanitized reason, leave no target, permit a clean retry, and preserve the prior active session.
 
 **Verification:**
 
-- [x] RED then GREEN focused tests cover defaults, repeated setup, invalid setup rollback, basename normalization/rejection, and missing document paths.
-- [x] Focused tests prove target resolution is unchanged by global, tab-local, and window-local working-directory changes.
-- [x] `stylua --check lua tests` and `git diff --check` pass for the touched files.
+- [x] RED then GREEN tests cover prompted and missing-link success, all conflict types, temporary write/verification/close failure reasons, clean retry, replacement between preflight and link, identical-byte replacement, unsupported link, baseline establishment, prior-session preservation, and browser-launch warning behavior.
+- [x] Focused session tests pass: `nvim --headless --noplugin -u tests/minimal_init.lua -c "PlenaryBustedFile tests/quickdraw/session_spec.lua"`.
+- [x] `stylua --check lua tests` and `git diff --check` pass.
 
 **Dependencies:** None
 
 **Files likely touched:**
 
-- `lua/quickdraw.lua`
-- `tests/quickdraw/integration_spec.lua`
+- `web/quickdraw/blank.png`
+- `lua/quickdraw/session.lua`
+- `tests/quickdraw/session_spec.lua`
 
-**Estimated scope:** Medium — 2 files
+**Estimated scope:** Medium - 3 files
 
-## Task 2: Open a linked PNG under the Markdown cursor
+## Task 2: Use creation mode from the Neovim prompt flow
 
-**Description:** Add the constrained current-line inline-image scanner and the edit branch of the command workflow. A local PNG range containing the byte-indexed cursor resolves to one absolute fixed target and delegates all missing/existing/ordinary/invalid PNG behavior to `quickdraw.session.start()`.
+**Description:** Start prompted targets with `create = true`, surface `TARGET_EXISTS` through the existing command notification boundary, and preserve the original Markdown insertion context and no-reprompt behavior.
 
 **Acceptance criteria:**
 
-- [x] Every cursor byte position from `!` through `)` on `![](path.png)` resolves the same target, including lines containing Unicode before the image.
-- [x] Relative link destinations resolve from the saved Markdown document directory; absolute POSIX/drive/UNC destinations remain absolute and do not need to be under configured `path`.
-- [x] URI/query/fragment/title/reference/multiline/angle/whitespace/nested forms are not treated as supported edit links and therefore enter the name-prompt branch; session failures leave the buffer unchanged.
+- [x] Prompted creation passes exactly `{ path = absolute_target, create = true }` after directory creation.
+- [x] `TARGET_EXISTS` displays the stable replacement-name message, does not reopen input, and leaves Markdown unchanged.
+- [x] Successful blank creation inserts the link afterward; cursor-linked editing continues without `create = true`.
 
 **Verification:**
 
-- [x] RED then GREEN focused tests cover multiple images on one line, cursor boundaries, Unicode byte columns, relative and absolute destinations, and rejected forms falling back to the prompt.
-- [x] Session fakes assert exactly one absolute `path` and preserve `NOT_QUICKDRAW`, validation, and browser-warning results.
-- [x] Existing `tests/quickdraw/session_spec.lua` remains green.
+- [x] RED then GREEN tests cover creation options, conflict/no-reprompt, cancellation, successful insertion order, browser warning, and cursor edit options.
+- [x] Focused integration tests pass: `nvim --headless --noplugin -u tests/minimal_init.lua -c "PlenaryBustedFile tests/quickdraw/integration_spec.lua"`.
+- [x] Full Lua tests, Stylua, and diff checks pass.
 
 **Dependencies:** Task 1
 
@@ -48,128 +49,130 @@
 - `lua/quickdraw.lua`
 - `tests/quickdraw/integration_spec.lua`
 
-**Estimated scope:** Medium — 2 files
+**Estimated scope:** Small - 2 files
 
-## Task 3: Prompt, start, and insert a new drawing
+## Checkpoint: Creation contract
 
-**Description:** Complete the create branch. Capture the originating Markdown buffer/cursor/document/changedtick, prompt through `vim.ui.input()`, validate the returned basename, create the configured directory, start the fixed target session, and insert the image only after startup succeeds.
+- [x] Prompted creation leaves a valid editable blank PNG before Markdown insertion.
+- [x] Every same-name entry is rejected without target or buffer changes.
+- [x] Existing cursor-linked edit behavior remains green.
+- [x] Focused session and integration suites pass.
+
+## Task 3: Build and test the serialized save-status controller
+
+**Description:** Add one dependency-free controller for revision tracking, latest-attempt ownership, serialized job capture/request execution, status rendering, plain-snapshot validation, and save-error ownership. Integrate its Node built-in tests into the existing `make test` gate.
 
 **Acceptance criteria:**
 
-- [x] Cancellation or empty input is a no-op; invalid names, unnamed/unsaved relative documents, non-modifiable or changed buffers, and directory/session failures notify without modifying text.
-- [x] Valid input recursively creates the configured directory, starts one absolute target, and inserts `![](destination.png)` exactly at the captured cursor byte position; generated alt text is always empty.
-- [x] Existing Quickdraw targets reopen through the same path; existing ordinary/invalid PNGs retain session rejection and are never overwritten.
+- [x] Initial saved state, user edits, save start, success, and latest failure produce the specified visible states.
+- [x] Save intents execute in callback order and capture revision, snapshot, and a fresh export only when each job reaches the queue head; editing during save remains unsaved; stale completion cannot mutate status or alerts.
+- [x] The controller is importable with injected callbacks and uses no DOM or runtime dependency.
 
 **Verification:**
 
-- [x] RED then GREEN focused tests cover prompt cancellation, validation, directory success/failure, asynchronous buffer changes, insert position, and Unicode surrounding text.
-- [x] Tests prove insertion occurs after successful session start and not after any failure; browser-launch warning still inserts and retains the URL.
-- [x] Focused integration tests and all existing PNG/session tests pass.
+- [x] RED then GREEN Node tests cover controller state transitions, queue-head capture, newest paired payload ordering, queued edits, edit-during-save, stale failure ownership, plain-snapshot validation, and alert clearing on edit.
+- [x] `node --test tests/web/save_status_test.mjs` passes.
+- [x] `make test` runs both the Plenary and Node suites successfully.
 
-**Dependencies:** Tasks 1-2
+**Dependencies:** None
 
 **Files likely touched:**
 
-- `lua/quickdraw.lua`
-- `tests/quickdraw/integration_spec.lua`
+- `web/quickdraw/save_status.js`
+- `tests/web/save_status_test.mjs`
+- `Makefile`
 
-**Estimated scope:** Medium — 2 files
+**Estimated scope:** Medium - 3 files
 
-## Checkpoint: Core workflow
+## Task 4: Preserve snapshot loading and serve browser support assets
 
-- [x] Default and configured creation paths are document-relative or absolute exactly as specified.
-- [x] Cursor edit and prompted creation both pass only absolute fixed targets to the existing session API.
-- [x] Cancelled and failed operations leave buffer and filesystem state unchanged except for a directory created immediately before a later session failure.
-- [x] Focused integration tests, existing PNG/session tests, Stylua, and diff checks pass.
-
-## Task 4: Register `:Quickdraw` and finish command notifications
-
-**Description:** Replace the template user command with one argument-free `:Quickdraw` callback and complete the command-boundary notifications. Registration remains automatic through `plugin/quickdraw.lua`; `setup()` stays optional.
+**Description:** Keep `GET /api/snapshot` as the original plain snapshot object, serve the blank PNG and save-controller module under the tokenized origin, and prove every successful session already has a target PNG.
 
 **Acceptance criteria:**
 
-- [x] `:Quickdraw` is registered once with `nargs = 0`, requires a Markdown buffer, and dispatches the tested cursor/create workflow.
-- [x] Errors and warnings use `vim.notify()` with title `quickdraw.nvim`; generic messages never include the token.
-- [x] Browser-launch failure is non-fatal and displays the returned copyable localhost URL while the session stays active.
+- [x] Existing, prompted-created, and cursor-link-created sessions all return the original plain snapshot object and have an established target baseline.
+- [x] No `saved` field or snapshot envelope is added.
+- [x] `blank.png` and `save_status.js` are served with correct content types under the authenticated route prefix only.
 
 **Verification:**
 
-- [x] RED then GREEN tests inspect command metadata, reject arguments/non-Markdown buffers, and cover error/warning notification levels and content.
-- [x] Headless runtime loading proves the old `MyFirstFunction` command is absent and `Quickdraw` is present once.
-- [x] Full tests, Stylua, and diff checks pass.
+- [x] RED then GREEN session tests cover plain responses for all session paths, target existence/baselines, asset bytes/content types, and route authentication.
+- [x] Focused session tests and JavaScript syntax checks pass.
+- [x] Existing server security, snapshot, and asset tests remain green.
 
-**Dependencies:** Tasks 1-3
+**Dependencies:** Tasks 1 and 3
 
 **Files likely touched:**
 
-- `lua/quickdraw.lua`
-- `tests/quickdraw/integration_spec.lua`
-- `plugin/quickdraw.lua`
-- `plugin/plugin_name.lua` — removed
+- `lua/quickdraw/session.lua`
+- `tests/quickdraw/session_spec.lua`
 
-**Estimated scope:** Medium — 4 files
+**Estimated scope:** Small - 2 files
 
-## Task 5: Remove superseded template code and tests
+## Task 5: Integrate accessible save status and empty-board saving
 
-**Description:** Delete the remaining template module and test artifacts after their Quickdraw replacements are green. Do not rename or modify the completed PNG/session modules.
+**Description:** Connect browser load/save wiring to the controller, add the status surface and theme-aware styles, and wrap whole-board export so an empty store saves with the canonical blank PNG while selection export remains unchanged.
 
 **Acceptance criteria:**
 
-- [x] No runtime or test file requires `plugin_name`, exposes the template greeting API, or references `MyFirstFunction`.
-- [x] Quickdraw setup, integration, PNG, and session suites are the only plugin behavior under test.
-- [x] Repository search finds no stale template Lua symbols outside historical Git data.
+- [x] Every successful plain-snapshot load initializes `Saved`; the board then displays `Saved`, `Unsaved`, `Saving…`, or `Save failed` truthfully with `role="status"`, `aria-live="polite"`, and text independent of color.
+- [x] Empty whole-board keyboard/menu saves reach the normal save endpoint; deferred preliminary exports, edits during save, and repeated saves obey queue-head capture and controller ordering.
+- [x] Status and error UI work in light/dark themes without overlap at 320, 768, 1024, and 1440 pixel widths.
 
 **Verification:**
 
-- [x] `make test` passes after deleting template files.
-- [x] `stylua --check lua tests` and `git diff --check` pass.
-- [x] `grep`/file inventory confirms the obsolete module and test paths are gone.
+- [x] Node tests cover valid/malformed plain snapshots, initial `Saved`, controller ordering, the empty-export helper, status text, and ARIA markup.
+- [x] `node --test tests/web/save_status_test.mjs` and JavaScript syntax checks pass.
+- [x] Manual browser validation covers real app wiring, keyboard/menu save, clear/save/reopen, failure recovery, light/dark themes, accessibility attributes, and 320/768/1024/1280/1440 placement.
 
-**Dependencies:** Task 4
+**Dependencies:** Tasks 3 and 4
 
 **Files likely touched:**
 
-- `lua/plugin_name.lua` — removed
-- `lua/plugin_name/module.lua` — removed
-- `tests/plugin_name/plugin_name_spec.lua` — removed
+- `web/quickdraw/app.js`
+- `web/quickdraw/save_status.js`
+- `web/quickdraw/index.html`
+- `web/quickdraw/app.css`
+- `tests/web/save_status_test.mjs`
 
-**Estimated scope:** Small — 3 deletions
+**Estimated scope:** Medium - 5 files
 
-## Task 6: Replace template documentation and vimdoc branding
+## Checkpoint: Browser persistence flow
 
-**Description:** Write concise installation, setup, create/edit, supported Markdown, path, error, and compatibility documentation; rename the checked-in help file and configure docs generation for `quickdraw`.
+- [x] Initial, edited, saving, saved, and failed states are truthful.
+- [x] Editing during save remains unsaved after older completion.
+- [x] Multiple saves persist matching snapshot metadata and PNG pixels from the newest job-start revision.
+- [x] Keyboard and menu save work after clearing the board.
+- [x] Light/dark and responsive layouts remain legible and non-overlapping.
+
+## Task 6: Update documentation and run complete validation
+
+**Description:** Document immediate blank-file creation, same-name rejection, and browser save states. Run all automated, provenance, diff, and manual user-flow gates against the final implementation.
 
 **Acceptance criteria:**
 
-- [x] README documents installation, optional setup, `:Quickdraw`, document-relative versus absolute paths, name rules, empty-alt insertion, cursor editing, manual URL fallback, and Neovim >=0.8.
-- [x] `doc/quickdraw.txt` exposes matching help tags and no template branding; `doc/my-template-docs.txt` is removed.
-- [x] The docs workflow generates `quickdraw` vimdoc rather than `my-template-docs` without changing unrelated release behavior.
+- [x] README and vimdoc explain that prompted and missing-link sessions create a blank PNG before browser success, conflicts require another name, and every successful load begins saved.
+- [x] Documentation preserves cursor-linked edit behavior and does not promise autosave or automatic re-prompting.
+- [x] All approved spec success criteria are verified with no vendored-core changes.
 
 **Verification:**
 
-- [x] README examples match `SPEC-neovim-integration.md` and implemented command/config names exactly.
-- [x] Vim help opens `:help quickdraw` and `:help :Quickdraw` in a local Neovim runtime check.
-- [x] Full tests, Stylua, Node syntax, and diff checks pass.
+- [x] `make test`, `stylua --check lua tests`, both JavaScript syntax checks, and `git diff --check` pass.
+- [x] `git diff --exit-code HEAD -- web/quickdraw/vendor/@quickdrawjs/core` confirms this feature adds no vendor changes; record the approved pre-existing `cf26d49` manifest mismatch.
+- [x] Manual create, conflict, edit, repeated save, empty save, failure, image-asset save, responsive layout, and reopen flows pass.
 
-**Dependencies:** Task 5
+**Dependencies:** Tasks 1-5
 
 **Files likely touched:**
 
 - `README.md`
 - `doc/quickdraw.txt`
-- `doc/my-template-docs.txt` — removed
-- `.github/workflows/docs.yml`
 
-**Estimated scope:** Medium — 4 files
+**Estimated scope:** Small - 2 files
 
-## Checkpoint: Complete neovim-integration
+## Checkpoint: Complete
 
-- [x] `make test` passes with no skipped tests.
-- [x] `stylua --check lua tests` passes.
-- [x] `node --check web/quickdraw/app.js` passes.
-- [x] `git diff --check` passes.
-- [x] Manual create → draw → save → cursor edit restores the same editable drawing.
-- [x] Relative behavior survives working-directory changes; absolute configuration works.
-- [x] Browser-launch failure leaves an active session and copyable URL.
-- [ ] Linux/macOS/Windows with Neovim 0.8/stable/nightly pass after a permitted commit/push.
+- [x] All automated and manual gates pass.
+- [x] Fresh-context review findings are resolved or explicitly deferred.
+- [x] Final diff matches `SPEC-editor-session.md` and `SPEC-neovim-integration.md`.
 - [ ] Human reviews and approves the completed capability.

@@ -486,7 +486,7 @@ describe("quickdraw create workflow", function()
     local expected_target = assert(quickdraw._test.resolve_target(nil, directory, "diagram"))
     local expected_destination = assert(quickdraw._test.markdown_destination(nil, directory, "diagram"))
     assert.are.same({ directory }, mkdir_calls)
-    assert.are.same({ { path = expected_target } }, session_calls)
+    assert.are.same({ { path = expected_target, create = true } }, session_calls)
     assert.are.equal("tex![](" .. expected_destination .. ")t", vim.api.nvim_buf_get_lines(buffer, 0, 1, false)[1])
     assert.are.same({ "mkdir", "session" }, events)
     assert.are.equal(1, #reports)
@@ -605,6 +605,7 @@ describe("quickdraw create workflow", function()
     local expected_target =
       assert(quickdraw._test.resolve_target(vim.api.nvim_buf_get_name(buffer), "./assets", "diagram"))
     assert.are.equal(expected_target, session_calls[1].path)
+    assert.is_true(session_calls[1].create)
     assert.is_true(vim.api.nvim_buf_get_option(buffer, "modified"))
     assert.is_nil(reports[1].error)
   end)
@@ -623,6 +624,30 @@ describe("quickdraw create workflow", function()
 
     assert.are.equal(1, #mkdir_calls)
     assert.are.equal(1, #session_calls)
+    assert.is_true(session_calls[1].create)
+    assert.are.equal(session_error, reports[1].error)
+    assert.are.equal("text", vim.api.nvim_buf_get_lines(buffer, 0, 1, false)[1])
+  end)
+
+  it("reports a same-name conflict without reopening the prompt", function()
+    new_markdown_buffer({ "text" }, "/tmp/quickdraw-note.md")
+    vim.api.nvim_win_set_cursor(0, { 1, 4 })
+    local session_error = {
+      code = "TARGET_EXISTS",
+      message = "A drawing with that name already exists. Choose another name.",
+    }
+    quickdraw._test.set_session_starter(function(options)
+      session_calls[#session_calls + 1] = options
+      return nil, session_error
+    end)
+
+    run()
+    prompt_callback("diagram")
+
+    assert.are.equal(1, #prompt_calls)
+    local expected_target =
+      assert(quickdraw._test.resolve_target(vim.api.nvim_buf_get_name(buffer), "./assets", "diagram"))
+    assert.are.same({ { path = expected_target, create = true } }, session_calls)
     assert.are.equal(session_error, reports[1].error)
     assert.are.equal("text", vim.api.nvim_buf_get_lines(buffer, 0, 1, false)[1])
   end)
@@ -858,6 +883,32 @@ describe("quickdraw command boundary", function()
     assert.are.equal(vim.log.levels.ERROR, notifications[1].level)
     assert.is_falsy(notifications[1].message:find("unrelated-token", 1, true))
     assert.is_falsy(notifications[1].message:find("http://", 1, true))
+  end)
+
+  it("shows the replacement-name reason for a same-name conflict", function()
+    source_plugin()
+    new_buffer("markdown", "/tmp/quickdraw-command.md")
+    quickdraw._test.set_input(function(_, callback)
+      prompt_callback = callback
+    end)
+    quickdraw._test.set_directory_creator(function()
+      return 1
+    end)
+    quickdraw._test.set_session_starter(function()
+      return nil,
+        {
+          code = "TARGET_EXISTS",
+          message = "A drawing with that name already exists. Choose another name.",
+        }
+    end)
+
+    vim.cmd("Quickdraw")
+    prompt_callback("diagram")
+
+    assert.are.equal(1, #notifications)
+    assert.are.equal(vim.log.levels.ERROR, notifications[1].level)
+    assert.are.equal("A drawing with that name already exists. Choose another name.", notifications[1].message)
+    assert.are.equal("quickdraw.nvim", notifications[1].options.title)
   end)
 
   it("keeps successful create and edit commands silent", function()

@@ -58,8 +58,10 @@ The command takes no arguments and follows this decision order:
 2. Inspect the current line and byte-indexed cursor column.
 3. If the cursor is within a supported inline Markdown image whose destination is a local `.png` path, resolve that destination from the document directory when relative and open it through `quickdraw.session.start()`.
 4. Otherwise call `vim.ui.input()` for a drawing name.
-5. On a valid name, create the configured directory if necessary, start the editor session for the resolved target, then insert the Markdown image at the original cursor position.
-6. Cancellation or an empty prompt result is a no-op.
+5. On a valid name, resolve the target, create the configured directory if necessary, and start `quickdraw.session.start({ path = target, create = true })`.
+6. If the editor session returns `TARGET_EXISTS`, show its stable replacement-name message and end the command without reopening the prompt.
+7. After the session has exclusively created a valid blank Quickdraw PNG, insert the Markdown image at the original cursor position.
+8. Cancellation or an empty prompt result is a no-op.
 
 Starting a command while another editor session is active retains the existing `editor-session` replacement semantics.
 
@@ -79,7 +81,7 @@ Rules:
 - Relative destinations resolve from the current Markdown file's directory; absolute destinations remain absolute.
 - The linked PNG does not have to live under the configured creation directory.
 - URI schemes, query strings, fragments, reference-style images, titles, multiline images, angle-bracket destinations, whitespace in destinations, and nested parentheses are not parsed.
-- A PNG link is treated as an edit candidate. Missing files create a new drawing at that linked path, existing Quickdraw PNGs open, and ordinary or invalid PNGs surface the existing session validation error rather than switching to the name prompt.
+- A PNG link is treated as an edit candidate. Missing files eagerly create a valid blank Quickdraw PNG at that linked path before the browser session succeeds, existing Quickdraw PNGs open, and ordinary or invalid PNGs surface the existing session validation error rather than switching to the name prompt.
 
 ### Drawing names and insertion
 
@@ -92,9 +94,11 @@ Rules:
 - Treat a final `.png` suffix case-insensitively and normalize it to lowercase; otherwise append `.png`.
 - Always leave the generated Markdown alt text empty; the prompted name only determines the PNG filename.
 - Other dots are part of the basename, so `architecture.v2` becomes `architecture.v2.png`.
-- Existing Quickdraw PNGs open for editing; existing ordinary or invalid PNGs are not overwritten.
+- Prompted creation delegates exact-entry checks and exclusive creation to `editor-session`.
+- `TARGET_EXISTS` shows `A drawing with that name already exists. Choose another name.`, does not reopen the prompt, and leaves the Markdown buffer and target unchanged.
 - Create missing configured directories recursively before starting the session.
-- Insert only after `quickdraw.session.start()` succeeds. A browser-launch warning still counts as a started session.
+- Start prompted targets with `create = true`; the editor session exclusively creates a valid blank Quickdraw PNG containing an empty snapshot.
+- Insert only after blank-artifact creation and `quickdraw.session.start()` succeed. A browser-launch warning still counts as a started session.
 - Insert exactly at the original cursor byte position and leave the buffer modified for the user to save.
 
 For `setup({ path = "./assets" })` and the name `diagram`, insert:
@@ -112,7 +116,8 @@ For an absolute configured path, insert an absolute destination. Markdown destin
 - Invalid setup raises a Lua configuration error synchronously.
 - Command failures do not modify the Markdown buffer.
 - Relative path resolution from an unnamed or unsaved buffer fails with a clear notification.
-- Directory creation failure, invalid name, unsupported buffer/link, or session failure leaves existing files unchanged.
+- Directory creation failure, invalid name, unsupported buffer/link, target conflict, or session failure leaves existing targets unchanged.
+- A target created concurrently is rejected by the editor session's exclusive creation and is never overwritten.
 - When the default browser cannot be opened, keep the session active and notify the user with the returned local URL so it can be opened manually.
 
 ## Commands
@@ -132,7 +137,7 @@ lua/
 ├── quickdraw.lua              Public setup and command workflow
 └── quickdraw/
     ├── png.lua                Existing artifact module
-    ├── session.lua            Existing editor-session module
+    ├── session.lua            Existing editor-session module, including exclusive blank creation
     └── session_state.lua      Existing process-wide session state
 
 plugin/
@@ -144,6 +149,7 @@ tests/
 
 README.md                      Installation and usage
 doc/quickdraw.txt              Generated/help documentation
+SPEC-editor-session.md         Browser session, blank artifact, and persistence-status contract
 SPEC-neovim-integration.md     This contract
 ```
 
@@ -188,11 +194,12 @@ Focused tests cover:
 6. Prompt cancellation and empty input are no-ops.
 7. Valid names normalize to one `.png`; traversal, separators, controls, whitespace, and Markdown delimiters are rejected.
 8. Missing directories are created; directory errors do not insert text or start a session.
-9. Successful creation starts the fixed absolute target and inserts the expected link at the original byte position, including Unicode text before the cursor.
-10. Existing Quickdraw PNGs open; ordinary PNGs and target conflicts retain existing session errors and do not alter the buffer.
-11. Browser launch failure keeps the URL available without exposing the token in unrelated errors.
-12. `:Quickdraw` is registered once and accepts no arguments.
-13. Existing PNG and editor-session tests remain green.
+9. Prompted creation passes `create = true`, handles `TARGET_EXISTS` with the stable replacement-name message, and never modifies the target or Markdown buffer on conflict.
+10. Successful creation leaves a valid blank Quickdraw PNG on disk before inserting the expected link at the original byte position, including Unicode text before the cursor.
+11. Cursor-linked existing Quickdraw PNGs open; linked ordinary PNGs retain existing session errors; linked missing PNGs create a valid blank artifact before browser success.
+12. Browser launch failure keeps the URL available without exposing the token in unrelated errors.
+13. `:Quickdraw` is registered once and accepts no arguments.
+14. Existing PNG and editor-session tests remain green.
 
 A manual Neovim check creates, saves, closes, and reopens a drawing from a Markdown link. The existing Linux/macOS/Windows and Neovim 0.8/stable/nightly CI matrix is the compatibility gate.
 
@@ -204,6 +211,7 @@ A manual Neovim check creates, saves, closes, and reopens a drawing from a Markd
 - Pass only an absolute fixed PNG path to `quickdraw.session.start()`.
 - Validate names and local Markdown destinations before filesystem access.
 - Preserve the existing loopback token, singleton, preflight, conflict, and atomic-save guarantees.
+- Keep exact-entry checks, exclusive blank-artifact creation, and race handling inside `editor-session`; handle its structured `TARGET_EXISTS` result at the command boundary.
 - Keep all runtime behavior offline and dependency-free.
 - Leave Markdown buffer saving under user control.
 
@@ -213,13 +221,13 @@ A manual Neovim check creates, saves, closes, and reopens a drawing from a Markd
 - Expand support to reference-style, multiline, titled, remote, or full CommonMark image parsing.
 - Change where relative paths are based.
 - Insert links before a session starts successfully.
-- Add a runtime dependency or modify the PNG/session contracts.
+- Add a runtime dependency or modify the PNG/session contracts beyond `SPEC-editor-session.md`.
 
 ### Never
 
 - Resolve relative paths from Neovim's current working directory.
 - Accept a prompted path or allow the browser to choose a path.
-- Overwrite an existing ordinary or invalid PNG.
+- Overwrite, open, truncate, or repurpose any same-name target during prompted creation.
 - Execute shell-interpolated paths or URLs.
 - Put paths or document locations into PNG metadata.
 - Expose the session bearer token in generic error messages or logs.
@@ -228,8 +236,9 @@ A manual Neovim check creates, saves, closes, and reopens a drawing from a Markd
 
 - `require("quickdraw").setup({ path = "./assets" })` configures document-relative storage, with the same value as the default.
 - One `:Quickdraw` command creates from ordinary cursor positions and edits from supported PNG image links.
-- New drawings insert the expected Markdown image at the original cursor position only after the session starts.
-- Existing Quickdraw PNGs reopen as editable drawings; ordinary PNGs are never overwritten.
+- New drawings exclusively create a valid blank Quickdraw PNG before inserting the expected Markdown image at the original cursor position.
+- Same-name targets are rejected with an instruction to choose another name and remain byte-for-byte unchanged.
+- Existing cursor-linked Quickdraw PNGs reopen as editable drawings; missing linked PNGs are created before browser success; prompted same-name targets are always rejected.
 - Relative behavior is independent of Neovim's working directory.
 - Browser-launch failure leaves a usable URL.
 - Template plugin behavior and branding are removed.

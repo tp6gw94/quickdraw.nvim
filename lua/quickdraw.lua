@@ -316,8 +316,12 @@ local function resolve_link_target(document_path, destination)
   return normalize_path(join_path(directory, destination), path_separator(document_path)), nil
 end
 
-local function call_session(target)
-  local ok, info, session_error = pcall(session_starter, { path = target })
+local function call_session(target, create)
+  local options = { path = target }
+  if create then
+    options.create = true
+  end
+  local ok, info, session_error = pcall(session_starter, options)
   if not ok then
     return nil, new_error("SESSION_FAILED", "Quickdraw session could not be started")
   end
@@ -444,7 +448,7 @@ local function create_drawing(context, name)
     return nil, new_error("MKDIR_FAILED", "drawing directory could not be created")
   end
 
-  local info, session_error = call_session(target)
+  local info, session_error = call_session(target, true)
   if not info then
     return nil, session_error
   end

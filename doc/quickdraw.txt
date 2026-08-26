@@ -14,8 +14,9 @@ Contents                                                     *quickdraw-contents
 1. Configuration                         |quickdraw-setup|
 2. Create and edit                       |quickdraw-create-edit|
 3. Supported image links                 |quickdraw-links|
-4. Browser fallback                      |quickdraw-browser|
-5. Troubleshooting                       |quickdraw-troubleshooting|
+4. Save status                           |quickdraw-save-status|
+5. Browser fallback                      |quickdraw-browser|
+6. Troubleshooting                       |quickdraw-troubleshooting|
 
 ==============================================================================
 1. Configuration                                             *quickdraw-setup*
@@ -56,16 +57,21 @@ Run the argument-free |:Quickdraw| command:
 The command chooses its action from the cursor position:
 
 1. On a supported inline Quickdraw image link, it opens that PNG for editing.
-2. Elsewhere in a Markdown buffer, it prompts for a drawing basename, creates
-   the configured directory if needed, and starts a new drawing.
-3. After the session starts successfully, it inserts an empty-alt link at the
+2. Elsewhere in a Markdown buffer, it prompts for a drawing basename and
+   checks the target path.
+3. If that name already exists, it refuses to open or overwrite it and asks
+   for another name.
+4. Otherwise it creates a valid blank Quickdraw PNG before starting the
+   browser session.
+5. After the PNG and session are ready, it inserts an empty-alt link at the
    original cursor position:
 >
     ![](./assets/diagram.png)
 <
-The Markdown buffer is not written automatically. Save it with Neovim when
-ready. Starting another drawing replaces the one active in the current
-Neovim process; only one editor session is active at a time.
+The inserted link points to an existing PNG immediately. The Markdown buffer
+itself is not written automatically. Save it with Neovim when ready. Starting
+another drawing replaces the one active in the current Neovim process; only
+one editor session is active at a time.
 
 ==============================================================================
 3. Supported image links                                     *quickdraw-links*
@@ -84,19 +90,34 @@ remote URLs, URI schemes, query strings, fragments, whitespace, and nested
 parentheses are not parsed. Unsupported image syntax follows the create flow
 instead of being treated as an edit link.
 
-A linked missing PNG can be created. An existing Quickdraw PNG opens for
-editing. An existing ordinary or invalid PNG is rejected and is never
-overwritten.
+A linked missing PNG is created as a valid blank Quickdraw PNG before the
+browser opens. An existing Quickdraw PNG opens for editing. An existing
+ordinary or invalid PNG is rejected and is never overwritten.
 
 ==============================================================================
-4. Browser fallback                                          *quickdraw-browser*
+4. Save status                                           *quickdraw-save-status*
+
+The browser shows the current persistence state in its top-right corner. Every
+successful load starts at Saved because the PNG already exists.
+
+- Saved: the displayed drawing is stored in the PNG.
+- Unsaved: the drawing changed after the last successful save.
+- Saving…: a save is in progress.
+- Save failed: the latest save did not reach the PNG. The error remains visible
+  until the next edit or successful save.
+
+Use Ctrl-S or Cmd-S, or choose Export as PNG from the board menu. Saving an
+empty board is supported. Quickdraw does not autosave.
+
+==============================================================================
+5. Browser fallback                                          *quickdraw-browser*
 
 The editor normally opens in the default browser. If that launch fails, the
 session remains active and Quickdraw shows a notification containing the local
 URL. Open that URL manually; it is valid only while that session is running.
 
 ==============================================================================
-5. Troubleshooting                                       *quickdraw-troubleshooting*
+6. Troubleshooting                                       *quickdraw-troubleshooting*
 
                                                             *quickdraw-markdown*
 - Quickdraw requires a Markdown buffer: set the buffer filetype to markdown.
@@ -108,6 +129,10 @@ URL. Open that URL manually; it is valid only while that session is running.
                                                             *quickdraw-name*
 - Invalid drawing name: enter a basename such as diagram or diagram.png, not a
   path.
+
+                                                            *quickdraw-exists*
+- Drawing already exists: choose another basename. Prompted creation never
+  opens or overwrites a same-name target.
 
                                                             *quickdraw-png*
 - PNG is not editable: the file is not a valid Quickdraw PNG; it will not be

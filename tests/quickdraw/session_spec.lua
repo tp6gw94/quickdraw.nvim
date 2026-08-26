@@ -220,10 +220,20 @@ local function add_text_chunk(png_bytes, text)
   return png_bytes:sub(1, -13) .. chunk .. png_bytes:sub(-12)
 end
 
+local function empty_snapshot()
+  return { document = { store = vim.empty_dict() } }
+end
+
 local function embedded_png(snapshot)
   local encoded, err = png.embed_snapshot(read_binary("tests/fixtures/blank.png"), snapshot)
   assert.is_nil(err)
   return encoded
+end
+
+local function creation_temp_paths(path)
+  local directory = vim.fn.fnamemodify(path, ":h")
+  local filename = vim.fn.fnamemodify(path, ":t")
+  return vim.fn.globpath(directory, filename .. ".quickdraw-create-*", false, true)
 end
 
 local fake_browser
@@ -315,7 +325,7 @@ describe("quickdraw session HTTP foundation", function()
     assert.matches("^[A-Za-z0-9_-]+$", info.token)
   end)
 
-  it("starts a missing absolute PNG target without creating it", function()
+  it("eagerly creates a missing absolute PNG target", function()
     local info, path = start_blank_session()
 
     local keys = {}
@@ -328,7 +338,8 @@ describe("quickdraw session HTTP foundation", function()
     assert.is_true(info.browser_opened)
     assert.is_nil(info.warning)
     assert.are.equal(1, #fake_browser.calls)
-    assert.is_nil(uv.fs_stat(path))
+    assert.is_table(uv.fs_stat(path))
+    assert.are.same(empty_snapshot(), select(1, png.extract_snapshot(read_binary(path))))
 
     local status, headers, body = request_for(info, "GET", "/" .. session_token(info) .. "/", {}, "")
     assert.are.equal(200, status)
@@ -336,6 +347,350 @@ describe("quickdraw session HTTP foundation", function()
     assert.is_not_nil(body:find("<!doctype html>", 1, true))
     assert.is_not_nil(body:find('rel="icon"', 1, true))
     assert.is_not_nil(body:find('href="data:,"', 1, true))
+  end)
+
+  it("creates a missing target before prompted creation succeeds", function()
+    local path = vim.fn.tempname() .. ".png"
+    os.remove(path)
+    local info, err = session.start({ path = path, create = true })
+
+    assert.is_nil(err)
+    assert.is_not_nil(info)
+    assert.are.same(empty_snapshot(), select(1, png.extract_snapshot(read_binary(path))))
+    assert.is_true(session._test.get_target_baseline().exists)
+    os.remove(path)
+  end)
+
+  it("rejects an existing target before prompted creation can replace it", function()
+    local path = vim.fn.tempname() .. ".png"
+    local original = read_binary("tests/fixtures/blank.png")
+    local open_calls = 0
+    write_binary(path, original)
+    session._test.set_target_file_operations({
+      create_open = function()
+        open_calls = open_calls + 1
+        return nil, "EACCES: staging should not start"
+      end,
+    })
+
+    local info, err = session.start({ path = path, create = true })
+
+    assert.is_nil(info)
+    assert.are.same({
+      code = "TARGET_EXISTS",
+      message = "A drawing with that name already exists. Choose another name.",
+    }, err)
+    assert.are.equal(0, open_calls)
+    assert.are.equal(original, read_binary(path))
+    os.remove(path)
+  end)
+
+  it("does not replace a target that appears after the creation preflight", function()
+    local path = vim.fn.tempname() .. ".png"
+    session._test.set_target_file_operations({
+      create_link = function(source)
+        write_binary(path, read_binary(source))
+        return nil, "EEXIST: target appeared"
+      end,
+    })
+
+    local info, err = session.start({ path = path, create = true })
+
+    assert.is_nil(info)
+    assert.are.equal("TARGET_EXISTS", err.code)
+    assert.are.equal("A drawing with that name already exists. Choose another name.", err.message)
+    assert.are_not.equal(read_binary("tests/fixtures/blank.png"), read_binary(path))
+    os.remove(path)
+  end)
+
+  it("rejects an existing Quickdraw target in prompted creation mode", function()
+    local path = vim.fn.tempname() .. ".png"
+    local original = embedded_png(vim.empty_dict())
+    write_binary(path, original)
+
+    local info, err = session.start({ path = path, create = true })
+
+    assert.is_nil(info)
+    assert.are.equal("TARGET_EXISTS", err.code)
+    assert.are.equal(original, read_binary(path))
+    os.remove(path)
+  end)
+
+  it("maps a real hard-link collision to TARGET_EXISTS without changing competing bytes", function()
+    local path = vim.fn.tempname() .. ".png"
+    local competing_bytes = "competing target bytes"
+    local lstat_calls = 0
+    session._test.set_target_file_operations({
+      create_lstat = function(candidate)
+        lstat_calls = lstat_calls + 1
+        if lstat_calls == 3 then
+          write_binary(path, competing_bytes)
+        end
+        return uv.fs_lstat(candidate)
+      end,
+    })
+
+    local info, err = session.start({ path = path, create = true })
+
+    assert.is_nil(info)
+    assert.are.same({
+      code = "TARGET_EXISTS",
+      message = "A drawing with that name already exists. Choose another name.",
+    }, err)
+    assert.are.equal(competing_bytes, read_binary(path))
+    assert.are.same({}, creation_temp_paths(path))
+    os.remove(path)
+  end)
+
+  it("rejects a staging pathname replaced before the final link", function()
+    local path = vim.fn.tempname() .. ".png"
+    local replaced_path
+    local moved_path
+    local lstat_calls = 0
+    session._test.set_target_file_operations({
+      create_lstat = function(candidate)
+        lstat_calls = lstat_calls + 1
+        if lstat_calls == 3 then
+          moved_path = candidate .. ".moved"
+          assert.is_true(uv.fs_rename(candidate, moved_path))
+          write_binary(candidate, "replacement staging bytes")
+          replaced_path = candidate
+        end
+        return uv.fs_lstat(candidate)
+      end,
+    })
+
+    local info, err = session.start({ path = path, create = true })
+
+    assert.is_nil(info)
+    assert.are.same({
+      code = "CREATE_FAILED",
+      message = "blank Quickdraw PNG changed before commit",
+    }, err)
+    assert.is_nil(uv.fs_lstat(path))
+    assert.are.equal("replacement staging bytes", read_binary(replaced_path))
+    assert.is_table(uv.fs_lstat(moved_path))
+    os.remove(replaced_path)
+    os.remove(moved_path)
+  end)
+
+  it("does not remove an unowned staging path when exclusive open fails", function()
+    local path = vim.fn.tempname() .. ".png"
+    local staging_path
+    session._test.set_target_file_operations({
+      create_open = function(candidate)
+        staging_path = candidate
+        write_binary(candidate, "owned by another process")
+        return nil, "EEXIST: staging path already exists"
+      end,
+    })
+
+    local info, err = session.start({ path = path, create = true })
+
+    assert.is_nil(info)
+    assert.are.same({
+      code = "CREATE_FAILED",
+      message = "blank Quickdraw PNG could not be opened",
+    }, err)
+    assert.are.equal("owned by another process", read_binary(staging_path))
+    assert.is_nil(uv.fs_lstat(path))
+    os.remove(staging_path)
+  end)
+
+  it("cleans a failed staged write and permits a clean retry", function()
+    local path = vim.fn.tempname() .. ".png"
+    session._test.set_target_file_operations({
+      create_write = function()
+        return nil, "EIO: injected creation failure"
+      end,
+    })
+
+    local info, err = session.start({ path = path, create = true })
+
+    assert.is_nil(info)
+    assert.are.same({
+      code = "CREATE_FAILED",
+      message = "blank Quickdraw PNG could not be written",
+    }, err)
+    assert.is_nil(uv.fs_lstat(path))
+    assert.are.same({}, creation_temp_paths(path))
+    session._test.set_target_file_operations()
+    info, err = session.start({ path = path, create = true })
+    assert.is_nil(err)
+    assert.is_not_nil(info)
+    assert.is_table(uv.fs_lstat(path))
+    os.remove(path)
+  end)
+
+  it("rejects directories and symlinks as prompted creation targets", function()
+    local directory = vim.fn.tempname() .. ".png"
+    assert.are.equal(1, vim.fn.mkdir(directory, "p"))
+    local info, err = session.start({ path = directory, create = true })
+    assert.is_nil(info)
+    assert.are.equal("TARGET_EXISTS", err.code)
+    assert.are.equal(1, vim.fn.isdirectory(directory))
+    vim.fn.delete(directory, "rf")
+
+    if type(uv.fs_symlink) ~= "function" then
+      return
+    end
+    local source = vim.fn.tempname() .. ".png"
+    local link = vim.fn.tempname() .. ".png"
+    write_binary(source, read_binary("tests/fixtures/blank.png"))
+    if not uv.fs_symlink(source, link) then
+      os.remove(source)
+      return
+    end
+    info, err = session.start({ path = link, create = true })
+    assert.is_nil(info)
+    assert.are.equal("TARGET_EXISTS", err.code)
+    assert.are.equal(source, uv.fs_readlink(link))
+    vim.fn.delete(link)
+    os.remove(source)
+  end)
+
+  it("preserves the active session when blank creation fails", function()
+    local active = start({ ["GET /echo"] = { body = "old" } })
+    local path = vim.fn.tempname() .. ".png"
+    session._test.set_target_file_operations({
+      create_write = function()
+        return nil, "EIO: injected creation failure"
+      end,
+    })
+
+    local info, err = session.start({ path = path, create = true })
+
+    assert.is_nil(info)
+    assert.are.equal("CREATE_FAILED", err.code)
+    assert.are.equal("old", select(3, request_for(active, "GET", "/" .. session_token(active) .. "/echo", {}, "")))
+    assert.is_nil(uv.fs_lstat(path))
+  end)
+
+  it("reports an exact fstat failure and cleans the staged target", function()
+    local path = vim.fn.tempname() .. ".png"
+    session._test.set_target_file_operations({
+      create_fstat = function()
+        return nil, "EIO: injected fstat failure"
+      end,
+    })
+
+    local info, err = session.start({ path = path, create = true })
+
+    assert.is_nil(info)
+    assert.are.same({
+      code = "CREATE_FAILED",
+      message = "blank Quickdraw PNG could not be verified",
+    }, err)
+    assert.is_nil(uv.fs_lstat(path))
+    assert.are.same({}, creation_temp_paths(path))
+  end)
+
+  it("reports an exact post-close verification failure and cleans the staged target", function()
+    local path = vim.fn.tempname() .. ".png"
+    local lstat_calls = 0
+    session._test.set_target_file_operations({
+      create_lstat = function(target)
+        lstat_calls = lstat_calls + 1
+        if lstat_calls == 2 then
+          return nil, "EIO: injected post-close verification failure"
+        end
+        return uv.fs_lstat(target)
+      end,
+    })
+
+    local info, err = session.start({ path = path, create = true })
+
+    assert.is_nil(info)
+    assert.are.same({
+      code = "CREATE_FAILED",
+      message = "blank Quickdraw PNG could not be verified after closing",
+    }, err)
+    assert.is_nil(uv.fs_lstat(path))
+    assert.are.same({}, creation_temp_paths(path))
+    assert.are.equal(2, lstat_calls)
+  end)
+
+  it("closes the descriptor before reporting an exact close failure", function()
+    local path = vim.fn.tempname() .. ".png"
+    local close_calls = 0
+    session._test.set_target_file_operations({
+      create_close = function(fd)
+        close_calls = close_calls + 1
+        local close_ok, close_error = uv.fs_close(fd)
+        assert.is_true(close_ok, close_error)
+        return nil, "EIO: injected close failure"
+      end,
+    })
+
+    local info, err = session.start({ path = path, create = true })
+
+    assert.is_nil(info)
+    assert.are.same({
+      code = "CREATE_FAILED",
+      message = "blank Quickdraw PNG could not be closed",
+    }, err)
+    assert.are.equal(1, close_calls)
+    assert.is_nil(uv.fs_lstat(path))
+    assert.are.same({}, creation_temp_paths(path))
+  end)
+
+  it("reports an exact link failure and cleans the staged target", function()
+    local path = vim.fn.tempname() .. ".png"
+    session._test.set_target_file_operations({
+      create_link = function()
+        return nil, "EIO: injected link failure"
+      end,
+    })
+
+    local info, err = session.start({ path = path, create = true })
+
+    assert.is_nil(info)
+    assert.are.same({
+      code = "CREATE_FAILED",
+      message = "blank Quickdraw PNG could not be committed",
+    }, err)
+    assert.is_nil(uv.fs_lstat(path))
+    assert.are.same({}, creation_temp_paths(path))
+  end)
+
+  it("preserves the active session when the commit link fails", function()
+    local active = start({ ["GET /echo"] = { body = "old" } })
+    local path = vim.fn.tempname() .. ".png"
+    session._test.set_target_file_operations({
+      create_link = function()
+        return nil, "EIO: injected commit failure"
+      end,
+    })
+
+    local info, err = session.start({ path = path, create = true })
+
+    assert.is_nil(info)
+    assert.are.same({
+      code = "CREATE_FAILED",
+      message = "blank Quickdraw PNG could not be committed",
+    }, err)
+    assert.are.equal("old", select(3, request_for(active, "GET", "/" .. session_token(active) .. "/echo", {}, "")))
+    assert.is_nil(uv.fs_lstat(path))
+    assert.are.same({}, creation_temp_paths(path))
+  end)
+
+  it("reports an unavailable hard-link implementation without a target", function()
+    local path = vim.fn.tempname() .. ".png"
+    session._test.set_target_file_operations({
+      create_link = function()
+        return nil, "ENOSYS: hard links unavailable"
+      end,
+    })
+
+    local info, err = session.start({ path = path, create = true })
+
+    assert.is_nil(info)
+    assert.are.same({
+      code = "CREATE_FAILED",
+      message = "blank Quickdraw PNG could not be committed",
+    }, err)
+    assert.is_nil(uv.fs_lstat(path))
+    assert.are.same({}, creation_temp_paths(path))
   end)
 
   it("launches the generated URL with the platform-specific argv", function()
@@ -689,11 +1044,13 @@ describe("quickdraw session HTTP foundation", function()
     os.remove(path)
 
     local missing_info, missing_path = start_blank_session()
-    assert.are.same({ exists = false }, session._test.get_target_baseline())
+    local missing_baseline = session._test.get_target_baseline()
+    assert.is_true(missing_baseline.exists)
     assert.is_nil(missing_info.target_baseline)
+    assert.is_table(uv.fs_stat(missing_path))
     session.stop()
     assert.is_nil(session._test.get_target_baseline())
-    assert.is_nil(uv.fs_stat(missing_path))
+    os.remove(missing_path)
   end)
 
   it("saves one multipart request and updates the target baseline", function()
@@ -1321,14 +1678,16 @@ describe("quickdraw session HTTP foundation", function()
     local status, _, response = save_request(info, body, "application/octet-stream")
     assert.are.equal(415, status)
     assert.are.equal("UNSUPPORTED_MEDIA_TYPE", vim.json.decode(response).error.code)
-    assert.is_nil(uv.fs_stat(path))
+    assert.is_table(uv.fs_stat(path))
+    local original = read_binary(path)
 
     local boundary = "BadBoundary"
     body = multipart_body(boundary, {})
     status, _, response = save_request(info, body, "multipart/form-data")
     assert.are.equal(400, status)
     assert.are.equal("INVALID_MULTIPART", vim.json.decode(response).error.code)
-    assert.is_nil(uv.fs_stat(path))
+    assert.are.equal(original, read_binary(path))
+    os.remove(path)
   end)
 
   it("rejects an existing ordinary PNG before consuming entropy", function()
@@ -1542,7 +1901,7 @@ describe("quickdraw session HTTP foundation", function()
       assert.is_nil(replacement_info, case.name)
       assert.are.equal(case.code, err.code, case.name)
       assert.are.equal(1, random_calls, case.name)
-      assert.are.same({}, get_snapshot(active_info), case.name)
+      assert.are.same(empty_snapshot(), get_snapshot(active_info), case.name)
       if case.path:sub(1, 1) == "/" then
         os.remove(case.path)
       end
@@ -1570,7 +1929,9 @@ describe("quickdraw session HTTP foundation", function()
     local assets = {
       { path = "/", content_type = "text/html; charset=utf-8", marker = "<!doctype html>" },
       { path = "/app.js", content_type = "text/javascript; charset=utf-8", marker = "createQuickdraw" },
+      { path = "/save_status.js", content_type = "text/javascript; charset=utf-8", marker = "createSaveStatus" },
       { path = "/app.css", content_type = "text/css; charset=utf-8", marker = "#board" },
+      { path = "/blank.png", content_type = "image/png", body = read_binary("web/quickdraw/blank.png") },
       {
         path = "/vendor/@quickdrawjs/core/src/index.js",
         content_type = "text/javascript; charset=utf-8",
@@ -1622,22 +1983,27 @@ describe("quickdraw session HTTP foundation", function()
       local status, headers, body = request_for(info, "GET", "/" .. session_token(info) .. asset.path, {}, "")
       assert.are.equal(200, status, asset.path)
       assert.are.equal(asset.content_type, header_value(headers, "content-type"), asset.path)
-      assert.is_not_nil(body:find(asset.marker, 1, true), asset.path)
+      if asset.body then
+        assert.are.equal(asset.body, body, asset.path)
+      else
+        assert.is_not_nil(body:find(asset.marker, 1, true), asset.path)
+      end
       if asset.path == "/app.css" then
         assert.is_not_nil(body:find("#board:focus-visible", 1, true))
-        assert.is_not_nil(body:find("outline: 2px solid", 1, true))
+        assert.is_not_nil(body:find("#save-status", 1, true))
       end
     end
   end)
 
-  it("returns an empty JSON object snapshot and restrictive headers", function()
+  it("returns the canonical blank snapshot and restrictive headers", function()
     local info = start_blank_session()
     local status, headers, body = request_for(info, "GET", "/" .. session_token(info) .. "/api/snapshot", {}, "")
 
     assert.are.equal(200, status)
     assert.are.equal("application/json; charset=utf-8", header_value(headers, "content-type"))
-    assert.are.same({}, vim.json.decode(body))
-    assert.is_false(is_list(vim.json.decode(body)))
+    assert.are.same(empty_snapshot(), vim.json.decode(body))
+    assert.is_false(is_list(vim.json.decode(body).document))
+    assert.is_false(is_list(vim.json.decode(body).document.store))
     assert.matches("default%-src 'self'", header_value(headers, "content-security-policy"))
     assert.matches("script%-src 'self'", header_value(headers, "content-security-policy"))
     assert.matches("connect%-src 'self'", header_value(headers, "content-security-policy"))
@@ -1657,7 +2023,8 @@ describe("quickdraw session HTTP foundation", function()
     assert.are.equal(404, status)
     assert.are.same({ error = { code = "NOT_FOUND", message = "not found" } }, vim.json.decode(body))
     assert.is_nil(body:find(path, 1, true))
-    assert.is_nil(uv.fs_stat(path))
+    assert.is_table(uv.fs_stat(path))
+    os.remove(path)
   end)
 
   it("uses only same-origin browser code and textContent for errors", function()
@@ -1671,16 +2038,19 @@ describe("quickdraw session HTTP foundation", function()
     status, _, body = request_for(info, "GET", "/" .. session_token(info) .. "/app.js", {}, "")
     assert.are.equal(200, status)
     assert.is_not_nil(body:find('from "./vendor/@quickdrawjs/core/src/index.js"', 1, true))
+    assert.is_not_nil(body:find('from "./save_status.js"', 1, true))
     assert.is_not_nil(body:find('fetch("./api/snapshot"', 1, true))
     assert.is_not_nil(body:find('fetch("./api/save"', 1, true))
+    assert.is_not_nil(body:find('fetch("./blank.png"', 1, true))
     assert.is_not_nil(body:find('method: "POST"', 1, true))
     assert.is_not_nil(body:find("new FormData()", 1, true))
     assert.is_not_nil(body:find("getSnapshot()", 1, true))
-    assert.is_not_nil(body:find('form.append(\n      "snapshot"', 1, true))
+    assert.is_not_nil(body:find('form.append("snapshot"', 1, true))
     assert.is_not_nil(body:find('type: "application/json"', 1, true))
-    assert.is_not_nil(body:find('form.append("png", blob, "drawing.png")', 1, true))
+    assert.is_not_nil(body:find('form.append("png", png, "drawing.png")', 1, true))
     assert.is_not_nil(body:find("clearError()", 1, true))
     assert.is_not_nil(body:find('loadSnapshot(snapshot, "remote")', 1, true))
+    assert.is_not_nil(body:find('markChanged("user")', 1, true))
     assert.is_not_nil(body:find("fitContent()", 1, true))
     assert.is_not_nil(body:find("textContent", 1, true))
     assert.is_nil(body:find("innerHTML", 1, true))

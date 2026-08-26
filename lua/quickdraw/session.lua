@@ -14,10 +14,13 @@ local MAX_BODY_LENGTH = 2147483647
 local IDLE_TIMEOUT_MS = 5000
 local TARGET_READ_CHUNK = 65536
 local SAVE_FILE_MODE = 384
+local CREATION_TEMP_PREFIX = ".quickdraw-create-"
 local EDITOR_ASSETS = {
   { route = "/", file = "web/quickdraw/index.html", content_type = "text/html; charset=utf-8" },
   { route = "/app.js", file = "web/quickdraw/app.js", content_type = "text/javascript; charset=utf-8" },
+  { route = "/save_status.js", file = "web/quickdraw/save_status.js", content_type = "text/javascript; charset=utf-8" },
   { route = "/app.css", file = "web/quickdraw/app.css", content_type = "text/css; charset=utf-8" },
+  { route = "/blank.png", file = "web/quickdraw/blank.png", content_type = "image/png" },
   {
     route = "/vendor/@quickdrawjs/core/src/index.js",
     file = "web/quickdraw/vendor/@quickdrawjs/core/src/index.js",
@@ -118,8 +121,30 @@ local DEFAULT_TARGET_FILE_OPERATIONS = {
   temp_lstat = function(path)
     return uv.fs_lstat(path)
   end,
+  create_open = function(path, flags, mode)
+    return uv.fs_open(path, flags, mode)
+  end,
+  create_write = function(fd, bytes, offset)
+    return uv.fs_write(fd, bytes, offset)
+  end,
+  create_fstat = function(fd)
+    return uv.fs_fstat(fd)
+  end,
+  create_close = function(fd)
+    return uv.fs_close(fd)
+  end,
+  create_unlink = function(path)
+    return uv.fs_unlink(path)
+  end,
+  create_lstat = function(path)
+    return uv.fs_lstat(path)
+  end,
+  create_link = function(source, target)
+    return uv.fs_link(source, target)
+  end,
 }
 local target_file_operations = DEFAULT_TARGET_FILE_OPERATIONS
+local creation_sequence = 0
 
 local STATUS_TEXT = {
   [200] = "OK",
@@ -882,6 +907,10 @@ local function read_editor_asset(root, relative_path)
   return body
 end
 
+local function empty_snapshot()
+  return { document = { store = vim.empty_dict() } }
+end
+
 local function normalize_snapshot(snapshot)
   if type(snapshot) == "table" and is_list(snapshot) and #snapshot == 0 then
     return vim.empty_dict()
@@ -890,7 +919,7 @@ local function normalize_snapshot(snapshot)
 end
 
 local function snapshot_response(session)
-  local snapshot = normalize_snapshot(session.current_snapshot or vim.empty_dict())
+  local snapshot = normalize_snapshot(session.current_snapshot or empty_snapshot())
   local ok, body = pcall(vim.json.encode, snapshot)
   if not ok or type(body) ~= "string" then
     return error_response("INTERNAL_ERROR")
@@ -949,6 +978,231 @@ end
 
 local function operation_succeeded(ok, result, operation_error)
   return ok and operation_error == nil and result ~= false and result ~= nil
+end
+
+local function is_exists_error(error_message)
+  return type(error_message) == "string" and error_message:match("^EEXIST") ~= nil
+end
+
+local function target_exists_error()
+  return new_error("TARGET_EXISTS", "A drawing with that name already exists. Choose another name.")
+end
+
+local function creation_failed(message)
+  return new_error("CREATE_FAILED", message or "blank Quickdraw PNG could not be created")
+end
+
+local function creation_temp_path(path)
+  creation_sequence = creation_sequence + 1
+  return path .. CREATION_TEMP_PREFIX .. tostring(vim.fn.getpid()) .. "-" .. tostring(creation_sequence) .. ".tmp"
+end
+
+local function remove_creation_temp(path, expected_identity)
+  if type(path) ~= "string" then
+    return true
+  end
+
+  local current, stat_error = uv.fs_lstat(path)
+  if not current then
+    return is_missing_error(stat_error)
+  end
+  if not expected_identity or not same_file_identity(expected_identity, file_identity(current)) then
+    return false
+  end
+
+  local unlink_function = target_file_operations.create_unlink
+  if type(unlink_function) ~= "function" then
+    return false
+  end
+  local unlink_ok, unlink_result, unlink_error = pcall(unlink_function, path)
+  if not operation_succeeded(unlink_ok, unlink_result, unlink_error) then
+    return false
+  end
+  return uv.fs_lstat(path) == nil
+end
+
+local function close_creation_fd(fd)
+  local close_function = target_file_operations.create_close
+  local close_ok, close_result, close_error
+  if type(close_function) == "function" then
+    close_ok, close_result, close_error = pcall(close_function, fd)
+    if operation_succeeded(close_ok, close_result, close_error) then
+      return true
+    end
+    if close_function ~= uv.fs_close then
+      pcall(uv.fs_close, fd)
+    end
+    return false
+  end
+
+  local fallback_ok, fallback_result, fallback_error = pcall(uv.fs_close, fd)
+  return operation_succeeded(fallback_ok, fallback_result, fallback_error)
+end
+
+local function require_target_absent(path)
+  local lstat_function = target_file_operations.create_lstat
+  if type(lstat_function) ~= "function" then
+    return nil, creation_failed("target could not be checked")
+  end
+  local ok, stat, stat_error = pcall(lstat_function, path)
+  if not ok then
+    return nil, creation_failed("target could not be checked")
+  end
+  if stat then
+    return nil, target_exists_error()
+  end
+  if not is_missing_error(stat_error) then
+    return nil, creation_failed("target could not be checked")
+  end
+  return true, nil
+end
+
+local function stage_blank_target(path)
+  local root, root_error = resolve_editor_root()
+  if not root then
+    return nil, root_error
+  end
+  local seed, seed_error = read_editor_asset(root, "web/quickdraw/blank.png")
+  if not seed then
+    return nil, seed_error
+  end
+  local bytes, embed_error = png.embed_snapshot(seed, empty_snapshot())
+  if not bytes then
+    return nil, creation_failed(embed_error and embed_error.message)
+  end
+
+  local temp_path = creation_temp_path(path)
+  local open_function = target_file_operations.create_open
+  if type(open_function) ~= "function" then
+    return nil, creation_failed("blank Quickdraw PNG could not be opened")
+  end
+  local open_ok, fd, open_error = pcall(open_function, temp_path, "wx", SAVE_FILE_MODE)
+  if not open_ok or fd == nil or open_error ~= nil then
+    if fd ~= nil then
+      close_creation_fd(fd)
+    end
+    return nil, creation_failed("blank Quickdraw PNG could not be opened")
+  end
+
+  local function fail(message, expected_identity)
+    if not expected_identity then
+      local fallback_ok, fallback_stat = pcall(uv.fs_fstat, fd)
+      expected_identity = fallback_ok and file_identity(fallback_stat) or nil
+    end
+    close_creation_fd(fd)
+    fd = nil
+    remove_creation_temp(temp_path, expected_identity)
+    return nil, creation_failed(message)
+  end
+
+  local write_function = target_file_operations.create_write
+  if type(write_function) ~= "function" then
+    return fail("blank Quickdraw PNG could not be written")
+  end
+  local offset = 0
+  while offset < #bytes do
+    local write_ok, written, write_error = pcall(write_function, fd, bytes:sub(offset + 1), offset)
+    if
+      not write_ok
+      or write_error ~= nil
+      or type(written) ~= "number"
+      or written % 1 ~= 0
+      or written <= 0
+      or written > #bytes - offset
+    then
+      return fail("blank Quickdraw PNG could not be written")
+    end
+    offset = offset + written
+  end
+
+  local fstat_function = target_file_operations.create_fstat
+  if type(fstat_function) ~= "function" then
+    return fail("blank Quickdraw PNG could not be verified")
+  end
+  local fstat_ok, stat, fstat_error = pcall(fstat_function, fd)
+  local identity = file_identity(stat)
+  if
+    not fstat_ok
+    or fstat_error ~= nil
+    or type(stat) ~= "table"
+    or stat.type ~= "file"
+    or stat.size ~= #bytes
+    or not identity
+  then
+    local fallback_ok, fallback_stat = pcall(uv.fs_fstat, fd)
+    local fallback_identity = fallback_ok and file_identity(fallback_stat) or nil
+    return fail("blank Quickdraw PNG could not be verified", fallback_identity)
+  end
+
+  if not close_creation_fd(fd) then
+    fd = nil
+    remove_creation_temp(temp_path, identity)
+    return nil, creation_failed("blank Quickdraw PNG could not be closed")
+  end
+  fd = nil
+
+  local lstat_function = target_file_operations.create_lstat
+  if type(lstat_function) ~= "function" then
+    remove_creation_temp(temp_path, identity)
+    return nil, creation_failed("blank Quickdraw PNG could not be verified after closing")
+  end
+  local lstat_ok, closed_stat, lstat_error = pcall(lstat_function, temp_path)
+  if
+    not lstat_ok
+    or lstat_error ~= nil
+    or type(closed_stat) ~= "table"
+    or closed_stat.type ~= "file"
+    or closed_stat.size ~= #bytes
+    or not same_file_identity(identity, file_identity(closed_stat))
+  then
+    remove_creation_temp(temp_path, identity)
+    return nil, creation_failed("blank Quickdraw PNG could not be verified after closing")
+  end
+
+  return { path = temp_path, bytes = bytes, identity = identity }, nil
+end
+
+local function commit_blank_target(artifact, target)
+  local lstat_function = target_file_operations.create_lstat
+  if type(lstat_function) ~= "function" then
+    remove_creation_temp(artifact.path, artifact.identity)
+    return nil, creation_failed("blank Quickdraw PNG could not be verified before commit")
+  end
+  local lstat_ok, current_stat, lstat_error = pcall(lstat_function, artifact.path)
+  if
+    not lstat_ok
+    or lstat_error ~= nil
+    or type(current_stat) ~= "table"
+    or current_stat.type ~= "file"
+    or current_stat.size ~= #artifact.bytes
+    or not same_file_identity(artifact.identity, file_identity(current_stat))
+  then
+    remove_creation_temp(artifact.path, artifact.identity)
+    return nil, creation_failed("blank Quickdraw PNG changed before commit")
+  end
+
+  local link_function = target_file_operations.create_link
+  if type(link_function) ~= "function" then
+    remove_creation_temp(artifact.path, artifact.identity)
+    return nil, creation_failed("blank Quickdraw PNG could not be committed")
+  end
+  local link_ok, link_result, link_error = pcall(link_function, artifact.path, target)
+  if not operation_succeeded(link_ok, link_result, link_error) then
+    remove_creation_temp(artifact.path, artifact.identity)
+    if is_exists_error(link_error) then
+      return nil, target_exists_error()
+    end
+    return nil, creation_failed("blank Quickdraw PNG could not be committed")
+  end
+  remove_creation_temp(artifact.path, artifact.identity)
+  return {
+    exists = true,
+    dev = artifact.identity.dev,
+    ino = artifact.identity.ino,
+    size = #artifact.bytes,
+    bytes = artifact.bytes,
+  },
+    nil
 end
 
 local function read_target_bytes(path)
@@ -1054,7 +1308,7 @@ local function read_target_snapshot(path)
     if read_error then
       return nil, read_error
     end
-    return vim.empty_dict(), nil, baseline
+    return empty_snapshot(), nil, baseline
   end
 
   local snapshot, parse_error = png.extract_snapshot(bytes)
@@ -1581,16 +1835,18 @@ local function start_server(options)
 
   session.port = address.port
   session.url = "http://127.0.0.1:" .. tostring(address.port) .. "/" .. token .. "/"
-  state.active_session = session
-  if previous_session then
-    close_session(previous_session)
+  if options.activate ~= false then
+    state.active_session = session
+    if previous_session then
+      close_session(previous_session)
+    end
   end
   return {
     host = "127.0.0.1",
     port = address.port,
     token = token,
     url = session.url,
-  }, nil
+  }, nil, session
 end
 
 function M.start(options)
@@ -1603,11 +1859,24 @@ function M.start(options)
     return nil, path_error
   end
 
-  local snapshot, snapshot_error, baseline = read_target_snapshot(path)
-  if not snapshot then
-    return nil, snapshot_error
+  local snapshot
+  local baseline
+  local create_requested = options.create == true
+  if create_requested then
+    local absent, absent_error = require_target_absent(path)
+    if not absent then
+      return nil, absent_error
+    end
+    snapshot = empty_snapshot()
+  else
+    local snapshot_error
+    snapshot, snapshot_error, baseline = read_target_snapshot(path)
+    if not snapshot then
+      return nil, snapshot_error
+    end
   end
 
+  local needs_creation = not baseline or not baseline.exists
   local routes, routes_error = build_editor_routes()
   if not routes then
     return nil, routes_error
@@ -1617,14 +1886,35 @@ function M.start(options)
     return nil, new_error("SERVER_FAILED", "session lifecycle unavailable")
   end
 
-  local info, server_error = start_server({
+  local info, server_error, prepared_session = start_server({
     routes = routes,
     target_path = path,
     target_baseline = baseline,
     current_snapshot = snapshot,
+    activate = not needs_creation,
   })
   if not info then
     return nil, server_error
+  end
+
+  if needs_creation then
+    local staged, stage_error = stage_blank_target(path)
+    if not staged then
+      close_session(prepared_session)
+      return nil, stage_error
+    end
+
+    local created_baseline, create_error = commit_blank_target(staged, path)
+    if not created_baseline then
+      close_session(prepared_session)
+      return nil, create_error
+    end
+    prepared_session.target_baseline = created_baseline
+    local previous_session = state.active_session
+    state.active_session = prepared_session
+    if previous_session then
+      close_session(previous_session)
+    end
   end
 
   local browser_opened, warning = launch_browser(info.url)
@@ -1654,6 +1944,7 @@ M._test = {
   reset = function()
     random_source = secure_random_bytes
     target_file_operations = DEFAULT_TARGET_FILE_OPERATIONS
+    creation_sequence = 0
     browser_platform = default_browser_platform
     browser_spawn = default_browser_spawn
     lifecycle_api = DEFAULT_LIFECYCLE_API
@@ -1707,6 +1998,13 @@ M._test = {
       temp_unlink = operations.temp_unlink or DEFAULT_TARGET_FILE_OPERATIONS.temp_unlink,
       temp_rename = operations.temp_rename or DEFAULT_TARGET_FILE_OPERATIONS.temp_rename,
       temp_lstat = operations.temp_lstat or DEFAULT_TARGET_FILE_OPERATIONS.temp_lstat,
+      create_open = operations.create_open or DEFAULT_TARGET_FILE_OPERATIONS.create_open,
+      create_write = operations.create_write or DEFAULT_TARGET_FILE_OPERATIONS.create_write,
+      create_fstat = operations.create_fstat or DEFAULT_TARGET_FILE_OPERATIONS.create_fstat,
+      create_close = operations.create_close or DEFAULT_TARGET_FILE_OPERATIONS.create_close,
+      create_unlink = operations.create_unlink or DEFAULT_TARGET_FILE_OPERATIONS.create_unlink,
+      create_lstat = operations.create_lstat or DEFAULT_TARGET_FILE_OPERATIONS.create_lstat,
+      create_link = operations.create_link or DEFAULT_TARGET_FILE_OPERATIONS.create_link,
     }
   end,
   get_target_baseline = function()

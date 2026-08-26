@@ -9,7 +9,9 @@
     <link rel="stylesheet" href="./vendor/@quickdrawjs/core/src/quickdraw.css" />
   </head>
   <body>
-    <main id="board" aria-label="Quickdraw canvas"></main>
+    <main id="board" aria-label="Quickdraw canvas">
+      <p id="save-status" role="status" aria-live="polite" hidden></p>
+    </main>
     <p id="error" role="alert" aria-live="assertive" hidden></p>
     <script type="module" src="./app.js"></script>
   </body>
