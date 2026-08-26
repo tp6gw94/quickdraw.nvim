@@ -10,6 +10,8 @@ Create and edit Quickdraw drawings from Markdown in Neovim.
 - Offline at runtime: no npm, build step, CDN, or external network access
 - PNGs keep their normal image data and store an editable Quickdraw snapshot
 
+![](./assets/demo.gif)
+
 ## Installation
 
 With [lazy.nvim](https://github.com/folke/lazy.nvim):
