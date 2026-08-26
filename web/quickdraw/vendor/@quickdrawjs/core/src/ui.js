@@ -102,6 +102,14 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
   const ui = el('div', 'qd-ui')
   root.appendChild(ui)
 
+  const onKeyDown = (e) => {
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 's') {
+      e.preventDefault()
+      void saveImage(true, null).catch((err) => console.warn('board menu action failed', err))
+    }
+  }
+  root.addEventListener('keydown', onKeyDown, true)
+
   let popover = null // { name, el }
   const closePopover = () => {
     if (popover) { popover.el.remove(); popover = null; refresh() }
@@ -328,7 +336,7 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
     }
 
     const hasSel = editor.selection.size > 0
-    item('download', 'Export as PNG', null, () => saveImage(true, null))
+    item('download', 'Export as PNG', '⌘/Ctrl+S', () => saveImage(true, null))
     item('transparent', 'Export — transparent', null, () => saveImage(false, null))
     if (hasSel) item('image', 'Export selection', null, () => saveImage(true, new Set(editor.selection)))
     item('copy', hasSel ? 'Copy selection as image' : 'Copy as image', null, async () => {
@@ -514,6 +522,7 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
     destroy() {
       offs.forEach((f) => f())
       ro.disconnect()
+      root.removeEventListener('keydown', onKeyDown, true)
       root.removeEventListener('pointerdown', closeOnCanvas, { capture: true })
       ui.remove()
     },
