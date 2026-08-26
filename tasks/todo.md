@@ -1,122 +1,180 @@
-# Tasks: artifact-format
+# Tasks: editor-session
 
-## Task 1: Implement validated PNG parsing and CRC32
+## Task 1: Vendor the published Quickdraw core package
 
-**Description:** Create the artifact module, a valid PNG fixture, and the minimum parser needed to safely inspect PNG chunks before any metadata work.
+**Description:** Check in the published `@quickdrawjs/core` 0.2.0 package as immutable browser assets with reproducible provenance. This task does not add application code or attempt to use endpoints that do not exist yet.
 
 **Acceptance criteria:**
 
-- [x] A valid PNG with first `IHDR`, valid chunk CRCs, and final zero-length `IEND` parses and `extract_snapshot()` returns `nil, nil`.
-- [x] Invalid signatures, illegal or truncated lengths, malformed/missing `IEND`, trailing bytes, and CRC mismatches return the specified stable error without a partial value.
-- [x] CRC32 handles LuaJIT signed results correctly and passes a fixed known vector including `IEND` CRC `AE426082`.
+- [x] The recorded npm tarball URL and SRI authenticate the downloaded 0.2.0 tarball; a checked-in SHA-256 manifest matches its extracted published files.
+- [x] The vendored tree includes the MIT license and every relative ESM/CSS import resolves to a checked-in file.
+- [x] No package manager, build step, CDN, or external resource is required at runtime.
 
 **Verification:**
 
-- [x] `make test`
-- [x] `stylua --check lua tests` — passes globally after Task 4 formatted `tests/minimal_init.lua`.
-- [x] `git diff --check`
+- [x] Download the recorded tarball, verify its SRI, extract it, regenerate the manifest, and diff it against the vendored tree.
+- [x] Check all ESM and CSS imports against the vendored file manifest.
+- [x] `git diff --check` passes.
 
 **Dependencies:** None
 
 **Files likely touched:**
 
-- `lua/quickdraw/png.lua`
-- `tests/fixtures/blank.png`
-- `tests/quickdraw/png_spec.lua`
+- `web/quickdraw/vendor/@quickdrawjs/core/` — mechanical published package contents
+- `web/quickdraw/vendor/@quickdrawjs/core/LICENSE`
+- `web/quickdraw/vendor/@quickdrawjs/core/INTEGRITY`
+- `web/quickdraw/vendor/@quickdrawjs/core/MANIFEST.sha256`
 
-**Estimated scope:** Medium — 3 files
+**Estimated scope:** Small — one mechanical vendor artifact plus provenance files
 
-## Checkpoint: Binary foundation
+## Task 2: Implement bounded loopback HTTP framing and routing
 
-- [x] Valid ordinary PNG extraction works.
-- [x] Structural and CRC failures are covered.
-- [x] Existing template tests remain green.
-
-## Task 2: Implement Quickdraw iTXt round-trip
-
-**Description:** Add exact Quickdraw `iTXt` parsing, versioned JSON envelope validation, and the first complete embed/extract path.
+**Description:** Build the minimum Neovim 0.8-compatible `vim.loop` HTTP engine required by this capability. It accepts one HTTP/1.1 request per connection, validates framing before buffering bodies, routes only exact token-scoped entries, and tears down deterministically.
 
 **Acceptance criteria:**
 
-- [x] Keyed, empty-object, Unicode, and data-URL snapshots embed and extract with the approved schema and uncompressed iTXt layout.
-- [x] Extraction rejects malformed matching iTXt data, malformed JSON, invalid schema/object shape, unsupported versions, and duplicate metadata with stable errors.
-- [x] Encoding failures return `ENCODE_FAILED`; inputs remain unchanged and failures return no partial output.
+- [x] The listener binds only `127.0.0.1:0`; token generation uses 32 OS-random bytes and fails closed when no approved entropy source is available.
+- [x] Fragmented requests with valid `Content-Length` are assembled; oversized request lines/headers, invalid lengths, transfer encoding, malformed framing, unknown routes, wrong tokens, and idle clients are rejected and closed.
+- [x] Routing uses an exact in-memory route map rather than joining browser paths to filesystem paths; raw/encoded traversal, backslashes, NULs, and unknown assets cannot escape the allowlist.
 
 **Verification:**
 
-- [x] `make test`
-- [x] `stylua --check lua tests` — passes globally after Task 4 formatted `tests/minimal_init.lua`.
-- [x] `git diff --check`
+- [x] RED then GREEN focused tests cover fragmented reads, 8 KiB request-line and 32 KiB header ceilings, five-second inactivity handling, token generation/failure, and malformed requests.
+- [x] Real ephemeral-socket tests prove loopback binding, token rejection, exact routing, connection close, and stopped-listener behavior.
+- [x] The existing CI matrix remains configured to run `make test` on Neovim 0.8, stable, and nightly; local `make test`, `stylua --check lua tests`, and `git diff --check` pass.
 
 **Dependencies:** Task 1
 
 **Files likely touched:**
 
-- `lua/quickdraw/png.lua`
-- `tests/quickdraw/png_spec.lua`
+- `lua/quickdraw/session.lua`
+- `tests/quickdraw/session_spec.lua`
 
-**Estimated scope:** Small — 2 files
+**Estimated scope:** Medium — 2 files with one constrained protocol seam
 
-## Task 3: Complete replacement, preservation, and large-payload behavior
+## Checkpoint: Server foundation
 
-**Description:** Finish the approved repair semantics and byte-preservation guarantees, then cover the absence of an arbitrary plugin payload limit.
+- [x] The server accepts only the documented loopback HTTP subset.
+- [x] Unauthenticated or incomplete clients cannot cause unbounded header growth or hold handles indefinitely.
+- [x] Static route input cannot address arbitrary runtime or filesystem files.
+
+## Task 3: Serve a blank native Quickdraw editor
+
+**Description:** Add the native HTML/JS shell and serve it plus the vendored Quickdraw assets through the exact route map. A missing target returns an empty snapshot so this task delivers the first browser-visible vertical slice. This milestone returns a URL for manual opening; automatic browser launch remains Task 6.
 
 **Acceptance criteria:**
 
-- [x] Embedding removes all existing matching Quickdraw chunks—including duplicate, malformed, or unsupported payloads—and writes exactly one current snapshot when PNG structure and CRCs are valid.
-- [x] Non-Quickdraw chunks retain their original bytes and relative order, `IDAT` remains byte-identical, metadata is inserted before `IEND`, and the input string is unchanged.
-- [x] One snapshot payload strictly larger than 16 MiB round-trips; the PNG 31-bit chunk guard is enforced without a smaller application limit.
+- [x] `start({ path = <missing absolute PNG> })` returns `{ url, path, browser_opened = false, warning = nil }` and serves HTML/JS/CSS with correct content types and restrictive security headers.
+- [x] `index.html` imports only checked-in ESM/CSS; `app.js` uses `createQuickdraw()` and renders a blank board from `GET /<token>/api/snapshot` without React or runtime npm.
+- [x] The returned page makes no automatic external request and shows a visible same-origin error if a valid session later fails.
 
 **Verification:**
 
-- [x] `make test`
-- [x] `stylua --check lua tests` — passes globally after Task 4 formatted `tests/minimal_init.lua`.
-- [x] `git diff --check`
+- [x] RED then GREEN tests cover missing-target startup, static responses, snapshot `{}`, security headers, and sanitized error bodies.
+- [x] Open the returned URL in a temporary browser profile; confirm the board renders, the console is clean, and network traffic remains same-origin.
+- [x] `make test`, `stylua --check lua tests`, and `git diff --check` pass.
 
 **Dependencies:** Task 2
 
 **Files likely touched:**
 
-- `lua/quickdraw/png.lua`
-- `tests/quickdraw/png_spec.lua`
+- `lua/quickdraw/session.lua`
+- `web/quickdraw/index.html`
+- `web/quickdraw/app.js`
+- `tests/quickdraw/session_spec.lua`
 
-**Estimated scope:** Small — 2 files
+**Estimated scope:** Medium — 4 authored files
 
-## Checkpoint: Metadata feature
+## Task 4: Preflight and load the fixed target snapshot
 
-- [x] The full public API satisfies the approved return contract.
-- [x] Round-trip, repair, preservation, error, and large-payload tests pass.
-- [x] No runtime dependency or sidecar file was added.
-
-## Task 4: Enforce formatting and Neovim compatibility in CI
-
-**Description:** Make CI enforce the commands and minimum Neovim version declared by the specification.
+**Description:** Preflight the one trusted absolute PNG path before binding. Existing Quickdraw PNGs load through `quickdraw.png`; targets that could be destroyed accidentally fail before a server or browser starts.
 
 **Acceptance criteria:**
 
-- [x] Stylua checks both `lua` and `tests`.
-- [x] The test matrix covers Neovim `v0.8.0`, stable, and nightly while retaining Linux, macOS, and Windows.
-- [x] `make test` passes locally; current Plenary also passes on Neovim `v0.8.0`, so no pin is required.
+- [x] A valid existing Quickdraw PNG is preflighted and `GET /<token>/api/snapshot` returns its exact embedded object.
+- [x] Existing ordinary PNGs without Quickdraw metadata, corrupt PNGs, unreadable targets, relative/invalid paths, and parser failures return stable errors before listener/browser startup and never modify disk.
+- [x] `app.js` loads the returned object with source `remote` and fits existing content.
 
 **Verification:**
 
-- [x] `make test` — passes on local Neovim `0.12.2` and `v0.8.0` with the current Plenary checkout.
-- [x] `stylua --check lua tests`
-- [x] `git diff --check`
-- [x] Manually inspect `.github/workflows/lint-test.yml` for the declared commands and matrix — `matrix.os` covers Linux, macOS, and Windows; versions cover `v0.8.0`, stable, and nightly.
-- [x] Manual image-viewer smoke: headless Neovim embedded `tests/fixtures/blank.png` into `/tmp/quickdraw-viewer-smoke.png`; macOS `sips` reported `format: png`, `pixelWidth: 1`, and `pixelHeight: 1`.
+- [x] RED then GREEN tests cover valid, ordinary, corrupt, unreadable, relative, and invalid targets, including absence of server/browser side effects on failure.
+- [x] A real loopback request returns the same snapshot previously embedded by `quickdraw.png`.
+- [x] Isolated-browser smoke opens an existing artifact and visually confirms its content; automated repository gates pass.
 
 **Dependencies:** Task 3
 
 **Files likely touched:**
 
-- `.github/workflows/lint-test.yml`
-- `tests/minimal_init.lua` only if a verified test-harness compatibility change is required
+- `lua/quickdraw/session.lua`
+- `web/quickdraw/app.js`
+- `tests/quickdraw/session_spec.lua`
 
-**Estimated scope:** Small — 1–2 files
+**Estimated scope:** Medium — 3 files
+
+## Checkpoint: Load flow
+
+- [x] A real browser renders both a new blank drawing and an existing editable drawing.
+- [x] Invalid tokens, asset paths, requests, and PNG targets expose no data and modify no files.
+- [x] Existing artifact-format tests remain green.
+
+## Task 5: Save snapshot JSON and PNG through one multipart request
+
+**Description:** Implement one `POST /<token>/api/save` endpoint. Quickdraw's `onSave(blob)` sends native `FormData` containing the current `store.getSnapshot()` JSON and exported PNG; Lua validates both, embeds the snapshot, and atomically replaces only the fixed target.
+
+**Acceptance criteria:**
+
+- [x] The request must contain exactly one `snapshot` part with `application/json` and one `png` part with `image/png`; missing, duplicate, unknown, malformed, or path-like parts are rejected before writing.
+- [x] Success produces a viewable PNG whose `quickdraw.png.extract_snapshot()` result exactly equals the submitted JSON object.
+- [x] Before writing, a missing target must still be missing and an existing target must still match its retained identity and exact bytes; conflicts return `TARGET_CHANGED` without writing.
+- [x] Invalid multipart framing, JSON, PNG, media type, embed, write, rename, or target-conflict handling returns the documented status/code, removes temporary output, and preserves the previous target byte-for-byte.
+
+**Verification:**
+
+- [x] RED then GREEN tests cover success, repeated replacement, missing/duplicate/unknown parts, boundary-like bytes inside PNG data, malformed inputs, target appearance/disappearance/replacement/in-place modification, write/rename failures, and a payload larger than 16 MiB.
+- [x] A real HTTP integration test sends one native multipart request and reopens the saved bytes through `quickdraw.png.extract_snapshot()`.
+- [x] Isolated-browser smoke draws and saves while DevTools confirms one multipart `POST`, a successful response, no external traffic, and a clean console; automated repository gates pass.
+
+**Dependencies:** Task 4
+
+**Files likely touched:**
+
+- `lua/quickdraw/session.lua`
+- `web/quickdraw/app.js`
+- `tests/quickdraw/session_spec.lua`
+
+**Estimated scope:** Medium — 3 files
+
+## Task 6: Complete singleton lifecycle and platform launch behavior
+
+**Description:** Finish session replacement, Neovim-exit cleanup, and default-browser launch while keeping browser-opening failure non-fatal. Qualify the complete save/stop/reopen flow independently in an isolated browser.
+
+**Acceptance criteria:**
+
+- [x] Starting a session stops the previous one; repeated `stop()` succeeds; `VimLeavePre` closes listener/client handles and invalidates the old token.
+- [x] macOS, Linux, and Windows launchers receive the URL without user-controlled shell interpolation; failure returns `{ browser_opened = false, warning = { code = "BROWSER_OPEN_FAILED", ... } }` while the URL remains usable.
+- [x] Opening the returned URL in a separate temporary-profile browser supports draw, save, stop, reopen, and editable snapshot restoration without console errors or external requests.
+
+**Verification:**
+
+- [x] Focused tests cover session replacement, repeated stop, exit cleanup, token invalidation, launcher selection, and non-fatal launcher failure.
+- [x] Separately verify the default launcher receives the URL and run the product smoke by manually opening that URL in an isolated browser profile.
+- [ ] `make test`, `stylua --check lua tests`, `git diff --check`, and the existing Neovim/OS CI matrix pass. Local gates pass; the configured cross-platform matrix requires a committed CI run.
+
+**Dependencies:** Task 5
+
+**Files likely touched:**
+
+- `lua/quickdraw/session.lua`
+- `tests/quickdraw/session_spec.lua`
+- `web/quickdraw/app.js` only if runtime verification exposes an integration defect
+
+**Estimated scope:** Medium — 2 files plus one conditional integration fix file
 
 ## Checkpoint: Complete
 
-- [x] All task acceptance criteria pass.
-- [x] All success criteria in `SPEC-artifact-format.md` are represented by tests or explicit manual checks, including the macOS `sips` image-viewer smoke.
-- [x] Plan approved and implemented under explicit user direction.
+- [x] An absolute target path supplied to `start()` opens automatically in the native Quickdraw editor.
+- [x] Save writes one ordinary viewable PNG containing the complete editable snapshot.
+- [x] Closing and reopening restores the same drawing.
+- [x] Browser input cannot select another filesystem path or reach a stopped session.
+- [ ] All automated gates and the real-browser smoke pass. Local gates and smoke pass; cross-platform CI is pending a committed run.
+- [x] Human reviews and approves the result before `neovim-integration` begins.

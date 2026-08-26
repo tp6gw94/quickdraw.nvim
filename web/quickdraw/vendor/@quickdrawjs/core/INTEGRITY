@@ -1,0 +1,9 @@
+package: @quickdrawjs/core
+version: 0.2.0
+tarball: https://registry.npmjs.org/@quickdrawjs/core/-/core-0.2.0.tgz
+sha512: sha512-87v/ZvyX4KYhCWqlR/js8poD6Pf1NuR4IB9RIkNxQ6g5XTUsH5vSePZkoXufVz0PRMFJv1Tmfv7RlqY9U79wMA==
+sha1: f3ebb3ed19567c86a1d4d11b9ed4703a0c0afce4
+git_head: 964ca4c582f2c55879387c2f54a77c13e561d2a8
+license: MIT (see LICENSE)
+manifest: MANIFEST.sha256 covers the published package files; provenance files are excluded.
+license_source: https://raw.githubusercontent.com/nmndwivedi/quickdraw/964ca4c582f2c55879387c2f54a77c13e561d2a8/LICENSE
