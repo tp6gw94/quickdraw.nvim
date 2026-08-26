@@ -1,180 +1,175 @@
-# Tasks: editor-session
+# Tasks: neovim-integration
 
-## Task 1: Vendor the published Quickdraw core package
+## Task 1: Implement configuration and input/path primitives
 
-**Description:** Check in the published `@quickdrawjs/core` 0.2.0 package as immutable browser assets with reproducible provenance. This task does not add application code or attempt to use endpoints that do not exist yet.
+**Description:** Add the public `require("quickdraw").setup()` module with deterministic default replacement, then implement the minimum private helpers for basename validation, absolute-path classification, document-relative filesystem targets, Markdown destinations, and platform separator normalization. This task does not start sessions or mutate buffers.
 
 **Acceptance criteria:**
 
-- [x] The recorded npm tarball URL and SRI authenticate the downloaded 0.2.0 tarball; a checked-in SHA-256 manifest matches its extracted published files.
-- [x] The vendored tree includes the MIT license and every relative ESM/CSS import resolves to a checked-in file.
-- [x] No package manager, build step, CDN, or external resource is required at runtime.
+- [x] `setup()` defaults to literal `./assets`, accepts one non-empty string `path`, replaces prior configuration from defaults, rejects unknown/invalid input without partial state changes, and does not expand `~`, environment variables, or globs.
+- [x] Names accept a safe Unicode basename with optional `.png`, normalize one lowercase suffix, and reject empty/traversal/separator/control/whitespace/Markdown-delimiter input.
+- [x] Relative targets derive from the saved Markdown document directory; POSIX, Windows drive, and UNC absolute paths remain absolute, with `/` used for Markdown destinations.
 
 **Verification:**
 
-- [x] Download the recorded tarball, verify its SRI, extract it, regenerate the manifest, and diff it against the vendored tree.
-- [x] Check all ESM and CSS imports against the vendored file manifest.
-- [x] `git diff --check` passes.
+- [x] RED then GREEN focused tests cover defaults, repeated setup, invalid setup rollback, basename normalization/rejection, and missing document paths.
+- [x] Focused tests prove target resolution is unchanged by global, tab-local, and window-local working-directory changes.
+- [x] `stylua --check lua tests` and `git diff --check` pass for the touched files.
 
 **Dependencies:** None
 
 **Files likely touched:**
 
-- `web/quickdraw/vendor/@quickdrawjs/core/` — mechanical published package contents
-- `web/quickdraw/vendor/@quickdrawjs/core/LICENSE`
-- `web/quickdraw/vendor/@quickdrawjs/core/INTEGRITY`
-- `web/quickdraw/vendor/@quickdrawjs/core/MANIFEST.sha256`
+- `lua/quickdraw.lua`
+- `tests/quickdraw/integration_spec.lua`
 
-**Estimated scope:** Small — one mechanical vendor artifact plus provenance files
+**Estimated scope:** Medium — 2 files
 
-## Task 2: Implement bounded loopback HTTP framing and routing
+## Task 2: Open a linked PNG under the Markdown cursor
 
-**Description:** Build the minimum Neovim 0.8-compatible `vim.loop` HTTP engine required by this capability. It accepts one HTTP/1.1 request per connection, validates framing before buffering bodies, routes only exact token-scoped entries, and tears down deterministically.
+**Description:** Add the constrained current-line inline-image scanner and the edit branch of the command workflow. A local PNG range containing the byte-indexed cursor resolves to one absolute fixed target and delegates all missing/existing/ordinary/invalid PNG behavior to `quickdraw.session.start()`.
 
 **Acceptance criteria:**
 
-- [x] The listener binds only `127.0.0.1:0`; token generation uses 32 OS-random bytes and fails closed when no approved entropy source is available.
-- [x] Fragmented requests with valid `Content-Length` are assembled; oversized request lines/headers, invalid lengths, transfer encoding, malformed framing, unknown routes, wrong tokens, and idle clients are rejected and closed.
-- [x] Routing uses an exact in-memory route map rather than joining browser paths to filesystem paths; raw/encoded traversal, backslashes, NULs, and unknown assets cannot escape the allowlist.
+- [x] Every cursor byte position from `!` through `)` on `![](path.png)` resolves the same target, including lines containing Unicode before the image.
+- [x] Relative link destinations resolve from the saved Markdown document directory; absolute POSIX/drive/UNC destinations remain absolute and do not need to be under configured `path`.
+- [x] URI/query/fragment/title/reference/multiline/angle/whitespace/nested forms are not treated as supported edit links and therefore enter the name-prompt branch; session failures leave the buffer unchanged.
 
 **Verification:**
 
-- [x] RED then GREEN focused tests cover fragmented reads, 8 KiB request-line and 32 KiB header ceilings, five-second inactivity handling, token generation/failure, and malformed requests.
-- [x] Real ephemeral-socket tests prove loopback binding, token rejection, exact routing, connection close, and stopped-listener behavior.
-- [x] The existing CI matrix remains configured to run `make test` on Neovim 0.8, stable, and nightly; local `make test`, `stylua --check lua tests`, and `git diff --check` pass.
+- [x] RED then GREEN focused tests cover multiple images on one line, cursor boundaries, Unicode byte columns, relative and absolute destinations, and rejected forms falling back to the prompt.
+- [x] Session fakes assert exactly one absolute `path` and preserve `NOT_QUICKDRAW`, validation, and browser-warning results.
+- [x] Existing `tests/quickdraw/session_spec.lua` remains green.
 
 **Dependencies:** Task 1
 
 **Files likely touched:**
 
-- `lua/quickdraw/session.lua`
-- `tests/quickdraw/session_spec.lua`
+- `lua/quickdraw.lua`
+- `tests/quickdraw/integration_spec.lua`
 
-**Estimated scope:** Medium — 2 files with one constrained protocol seam
+**Estimated scope:** Medium — 2 files
 
-## Checkpoint: Server foundation
+## Task 3: Prompt, start, and insert a new drawing
 
-- [x] The server accepts only the documented loopback HTTP subset.
-- [x] Unauthenticated or incomplete clients cannot cause unbounded header growth or hold handles indefinitely.
-- [x] Static route input cannot address arbitrary runtime or filesystem files.
-
-## Task 3: Serve a blank native Quickdraw editor
-
-**Description:** Add the native HTML/JS shell and serve it plus the vendored Quickdraw assets through the exact route map. A missing target returns an empty snapshot so this task delivers the first browser-visible vertical slice. This milestone returns a URL for manual opening; automatic browser launch remains Task 6.
+**Description:** Complete the create branch. Capture the originating Markdown buffer/cursor/document/changedtick, prompt through `vim.ui.input()`, validate the returned basename, create the configured directory, start the fixed target session, and insert the image only after startup succeeds.
 
 **Acceptance criteria:**
 
-- [x] `start({ path = <missing absolute PNG> })` returns `{ url, path, browser_opened = false, warning = nil }` and serves HTML/JS/CSS with correct content types and restrictive security headers.
-- [x] `index.html` imports only checked-in ESM/CSS; `app.js` uses `createQuickdraw()` and renders a blank board from `GET /<token>/api/snapshot` without React or runtime npm.
-- [x] The returned page makes no automatic external request and shows a visible same-origin error if a valid session later fails.
+- [x] Cancellation or empty input is a no-op; invalid names, unnamed/unsaved relative documents, non-modifiable or changed buffers, and directory/session failures notify without modifying text.
+- [x] Valid input recursively creates the configured directory, starts one absolute target, and inserts `![](destination.png)` exactly at the captured cursor byte position; generated alt text is always empty.
+- [x] Existing Quickdraw targets reopen through the same path; existing ordinary/invalid PNGs retain session rejection and are never overwritten.
 
 **Verification:**
 
-- [x] RED then GREEN tests cover missing-target startup, static responses, snapshot `{}`, security headers, and sanitized error bodies.
-- [x] Open the returned URL in a temporary browser profile; confirm the board renders, the console is clean, and network traffic remains same-origin.
-- [x] `make test`, `stylua --check lua tests`, and `git diff --check` pass.
+- [x] RED then GREEN focused tests cover prompt cancellation, validation, directory success/failure, asynchronous buffer changes, insert position, and Unicode surrounding text.
+- [x] Tests prove insertion occurs after successful session start and not after any failure; browser-launch warning still inserts and retains the URL.
+- [x] Focused integration tests and all existing PNG/session tests pass.
 
-**Dependencies:** Task 2
+**Dependencies:** Tasks 1-2
 
 **Files likely touched:**
 
-- `lua/quickdraw/session.lua`
-- `web/quickdraw/index.html`
-- `web/quickdraw/app.js`
-- `tests/quickdraw/session_spec.lua`
+- `lua/quickdraw.lua`
+- `tests/quickdraw/integration_spec.lua`
 
-**Estimated scope:** Medium — 4 authored files
+**Estimated scope:** Medium — 2 files
 
-## Task 4: Preflight and load the fixed target snapshot
+## Checkpoint: Core workflow
 
-**Description:** Preflight the one trusted absolute PNG path before binding. Existing Quickdraw PNGs load through `quickdraw.png`; targets that could be destroyed accidentally fail before a server or browser starts.
+- [x] Default and configured creation paths are document-relative or absolute exactly as specified.
+- [x] Cursor edit and prompted creation both pass only absolute fixed targets to the existing session API.
+- [x] Cancelled and failed operations leave buffer and filesystem state unchanged except for a directory created immediately before a later session failure.
+- [x] Focused integration tests, existing PNG/session tests, Stylua, and diff checks pass.
+
+## Task 4: Register `:Quickdraw` and finish command notifications
+
+**Description:** Replace the template user command with one argument-free `:Quickdraw` callback and complete the command-boundary notifications. Registration remains automatic through `plugin/quickdraw.lua`; `setup()` stays optional.
 
 **Acceptance criteria:**
 
-- [x] A valid existing Quickdraw PNG is preflighted and `GET /<token>/api/snapshot` returns its exact embedded object.
-- [x] Existing ordinary PNGs without Quickdraw metadata, corrupt PNGs, unreadable targets, relative/invalid paths, and parser failures return stable errors before listener/browser startup and never modify disk.
-- [x] `app.js` loads the returned object with source `remote` and fits existing content.
+- [x] `:Quickdraw` is registered once with `nargs = 0`, requires a Markdown buffer, and dispatches the tested cursor/create workflow.
+- [x] Errors and warnings use `vim.notify()` with title `quickdraw.nvim`; generic messages never include the token.
+- [x] Browser-launch failure is non-fatal and displays the returned copyable localhost URL while the session stays active.
 
 **Verification:**
 
-- [x] RED then GREEN tests cover valid, ordinary, corrupt, unreadable, relative, and invalid targets, including absence of server/browser side effects on failure.
-- [x] A real loopback request returns the same snapshot previously embedded by `quickdraw.png`.
-- [x] Isolated-browser smoke opens an existing artifact and visually confirms its content; automated repository gates pass.
+- [x] RED then GREEN tests inspect command metadata, reject arguments/non-Markdown buffers, and cover error/warning notification levels and content.
+- [x] Headless runtime loading proves the old `MyFirstFunction` command is absent and `Quickdraw` is present once.
+- [x] Full tests, Stylua, and diff checks pass.
 
-**Dependencies:** Task 3
+**Dependencies:** Tasks 1-3
 
 **Files likely touched:**
 
-- `lua/quickdraw/session.lua`
-- `web/quickdraw/app.js`
-- `tests/quickdraw/session_spec.lua`
+- `lua/quickdraw.lua`
+- `tests/quickdraw/integration_spec.lua`
+- `plugin/quickdraw.lua`
+- `plugin/plugin_name.lua` — removed
 
-**Estimated scope:** Medium — 3 files
+**Estimated scope:** Medium — 4 files
 
-## Checkpoint: Load flow
+## Task 5: Remove superseded template code and tests
 
-- [x] A real browser renders both a new blank drawing and an existing editable drawing.
-- [x] Invalid tokens, asset paths, requests, and PNG targets expose no data and modify no files.
-- [x] Existing artifact-format tests remain green.
-
-## Task 5: Save snapshot JSON and PNG through one multipart request
-
-**Description:** Implement one `POST /<token>/api/save` endpoint. Quickdraw's `onSave(blob)` sends native `FormData` containing the current `store.getSnapshot()` JSON and exported PNG; Lua validates both, embeds the snapshot, and atomically replaces only the fixed target.
+**Description:** Delete the remaining template module and test artifacts after their Quickdraw replacements are green. Do not rename or modify the completed PNG/session modules.
 
 **Acceptance criteria:**
 
-- [x] The request must contain exactly one `snapshot` part with `application/json` and one `png` part with `image/png`; missing, duplicate, unknown, malformed, or path-like parts are rejected before writing.
-- [x] Success produces a viewable PNG whose `quickdraw.png.extract_snapshot()` result exactly equals the submitted JSON object.
-- [x] Before writing, a missing target must still be missing and an existing target must still match its retained identity and exact bytes; conflicts return `TARGET_CHANGED` without writing.
-- [x] Invalid multipart framing, JSON, PNG, media type, embed, write, rename, or target-conflict handling returns the documented status/code, removes temporary output, and preserves the previous target byte-for-byte.
+- [x] No runtime or test file requires `plugin_name`, exposes the template greeting API, or references `MyFirstFunction`.
+- [x] Quickdraw setup, integration, PNG, and session suites are the only plugin behavior under test.
+- [x] Repository search finds no stale template Lua symbols outside historical Git data.
 
 **Verification:**
 
-- [x] RED then GREEN tests cover success, repeated replacement, missing/duplicate/unknown parts, boundary-like bytes inside PNG data, malformed inputs, target appearance/disappearance/replacement/in-place modification, write/rename failures, and a payload larger than 16 MiB.
-- [x] A real HTTP integration test sends one native multipart request and reopens the saved bytes through `quickdraw.png.extract_snapshot()`.
-- [x] Isolated-browser smoke draws and saves while DevTools confirms one multipart `POST`, a successful response, no external traffic, and a clean console; automated repository gates pass.
+- [x] `make test` passes after deleting template files.
+- [x] `stylua --check lua tests` and `git diff --check` pass.
+- [x] `grep`/file inventory confirms the obsolete module and test paths are gone.
 
 **Dependencies:** Task 4
 
 **Files likely touched:**
 
-- `lua/quickdraw/session.lua`
-- `web/quickdraw/app.js`
-- `tests/quickdraw/session_spec.lua`
+- `lua/plugin_name.lua` — removed
+- `lua/plugin_name/module.lua` — removed
+- `tests/plugin_name/plugin_name_spec.lua` — removed
 
-**Estimated scope:** Medium — 3 files
+**Estimated scope:** Small — 3 deletions
 
-## Task 6: Complete singleton lifecycle and platform launch behavior
+## Task 6: Replace template documentation and vimdoc branding
 
-**Description:** Finish session replacement, Neovim-exit cleanup, and default-browser launch while keeping browser-opening failure non-fatal. Qualify the complete save/stop/reopen flow independently in an isolated browser.
+**Description:** Write concise installation, setup, create/edit, supported Markdown, path, error, and compatibility documentation; rename the checked-in help file and configure docs generation for `quickdraw`.
 
 **Acceptance criteria:**
 
-- [x] Starting a session stops the previous one; repeated `stop()` succeeds; `VimLeavePre` closes listener/client handles and invalidates the old token.
-- [x] macOS, Linux, and Windows launchers receive the URL without user-controlled shell interpolation; failure returns `{ browser_opened = false, warning = { code = "BROWSER_OPEN_FAILED", ... } }` while the URL remains usable.
-- [x] Opening the returned URL in a separate temporary-profile browser supports draw, save, stop, reopen, and editable snapshot restoration without console errors or external requests.
+- [x] README documents installation, optional setup, `:Quickdraw`, document-relative versus absolute paths, name rules, empty-alt insertion, cursor editing, manual URL fallback, and Neovim >=0.8.
+- [x] `doc/quickdraw.txt` exposes matching help tags and no template branding; `doc/my-template-docs.txt` is removed.
+- [x] The docs workflow generates `quickdraw` vimdoc rather than `my-template-docs` without changing unrelated release behavior.
 
 **Verification:**
 
-- [x] Focused tests cover session replacement, repeated stop, exit cleanup, token invalidation, launcher selection, and non-fatal launcher failure.
-- [x] Separately verify the default launcher receives the URL and run the product smoke by manually opening that URL in an isolated browser profile.
-- [ ] `make test`, `stylua --check lua tests`, `git diff --check`, and the existing Neovim/OS CI matrix pass. Local gates pass; the configured cross-platform matrix requires a committed CI run.
+- [x] README examples match `SPEC-neovim-integration.md` and implemented command/config names exactly.
+- [x] Vim help opens `:help quickdraw` and `:help :Quickdraw` in a local Neovim runtime check.
+- [x] Full tests, Stylua, Node syntax, and diff checks pass.
 
 **Dependencies:** Task 5
 
 **Files likely touched:**
 
-- `lua/quickdraw/session.lua`
-- `tests/quickdraw/session_spec.lua`
-- `web/quickdraw/app.js` only if runtime verification exposes an integration defect
+- `README.md`
+- `doc/quickdraw.txt`
+- `doc/my-template-docs.txt` — removed
+- `.github/workflows/docs.yml`
 
-**Estimated scope:** Medium — 2 files plus one conditional integration fix file
+**Estimated scope:** Medium — 4 files
 
-## Checkpoint: Complete
+## Checkpoint: Complete neovim-integration
 
-- [x] An absolute target path supplied to `start()` opens automatically in the native Quickdraw editor.
-- [x] Save writes one ordinary viewable PNG containing the complete editable snapshot.
-- [x] Closing and reopening restores the same drawing.
-- [x] Browser input cannot select another filesystem path or reach a stopped session.
-- [ ] All automated gates and the real-browser smoke pass. Local gates and smoke pass; cross-platform CI is pending a committed run.
-- [x] Human reviews and approves the result before `neovim-integration` begins.
+- [x] `make test` passes with no skipped tests.
+- [x] `stylua --check lua tests` passes.
+- [x] `node --check web/quickdraw/app.js` passes.
+- [x] `git diff --check` passes.
+- [x] Manual create → draw → save → cursor edit restores the same editable drawing.
+- [x] Relative behavior survives working-directory changes; absolute configuration works.
+- [x] Browser-launch failure leaves an active session and copyable URL.
+- [ ] Linux/macOS/Windows with Neovim 0.8/stable/nightly pass after a permitted commit/push.
+- [ ] Human reviews and approves the completed capability.

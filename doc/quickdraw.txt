@@ -1,0 +1,128 @@
+*quickdraw.txt* *quickdraw*  Create and edit Quickdraw drawings from Markdown
+
+                             quickdraw.nvim
+
+Quickdraw is an offline Markdown drawing workflow for Neovim. It bundles the
+native Quickdraw HTML/JavaScript editor and stores the editable snapshot in the
+PNG. No npm, build step, CDN, or external network access is needed at runtime.
+
+Requires Neovim >= 0.8.
+
+==============================================================================
+Contents                                                     *quickdraw-contents*
+
+1. Configuration                         |quickdraw-setup|
+2. Create and edit                       |quickdraw-create-edit|
+3. Supported image links                 |quickdraw-links|
+4. Browser fallback                      |quickdraw-browser|
+5. Troubleshooting                       |quickdraw-troubleshooting|
+
+==============================================================================
+1. Configuration                                             *quickdraw-setup*
+
+Configuration is optional. The default drawing directory is ./assets:
+>
+    require("quickdraw").setup({
+      path = "./assets",
+    })
+<
+Only |quickdraw-setup| and the |:Quickdraw| command are user-facing. The
+plugin's other modules are internal.
+
+The path rules are:
+
+- A relative path is resolved from the current saved Markdown document's
+  directory, not from Neovim's working directory.
+- An absolute path stays absolute. Markdown links use / separators on every
+  platform.
+- ~, environment variables, and globs are treated literally.
+- The configured path must fit the supported inline-link form: no whitespace,
+  ()<>?#, or URI scheme.
+
+Creation accepts only a basename. It cannot contain a path separator,
+whitespace, control byte, or Markdown delimiter. `diagram` and `diagram.png`
+both produce diagram.png; a final .PNG suffix is normalized to .png. Other
+dots are allowed, so architecture.v2 becomes architecture.v2.png.
+
+==============================================================================
+2. Create and edit                                           *quickdraw-create-edit*
+
+Run the argument-free |:Quickdraw| command:
+
+                                                            *:Quickdraw*
+>
+    :Quickdraw
+<
+The command chooses its action from the cursor position:
+
+1. On a supported inline Quickdraw image link, it opens that PNG for editing.
+2. Elsewhere in a Markdown buffer, it prompts for a drawing basename, creates
+   the configured directory if needed, and starts a new drawing.
+3. After the session starts successfully, it inserts an empty-alt link at the
+   original cursor position:
+>
+    ![](./assets/diagram.png)
+<
+The Markdown buffer is not written automatically. Save it with Neovim when
+ready. Starting another drawing replaces the one active in the current
+Neovim process; only one editor session is active at a time.
+
+==============================================================================
+3. Supported image links                                     *quickdraw-links*
+
+Cursor-based editing intentionally supports this constrained inline form:
+>
+    ![](./assets/diagram.png)
+<
+The image must be on one line, the cursor must be between ! and ), and the
+destination must be a local path ending in .png (case-insensitive). Relative
+destinations use the Markdown document directory. Absolute POSIX, Windows
+drive, and UNC paths remain absolute.
+
+Reference-style images, titles, multiline images, angle-bracket destinations,
+remote URLs, URI schemes, query strings, fragments, whitespace, and nested
+parentheses are not parsed. Unsupported image syntax follows the create flow
+instead of being treated as an edit link.
+
+A linked missing PNG can be created. An existing Quickdraw PNG opens for
+editing. An existing ordinary or invalid PNG is rejected and is never
+overwritten.
+
+==============================================================================
+4. Browser fallback                                          *quickdraw-browser*
+
+The editor normally opens in the default browser. If that launch fails, the
+session remains active and Quickdraw shows a notification containing the local
+URL. Open that URL manually; it is valid only while that session is running.
+
+==============================================================================
+5. Troubleshooting                                       *quickdraw-troubleshooting*
+
+                                                            *quickdraw-markdown*
+- Quickdraw requires a Markdown buffer: set the buffer filetype to markdown.
+
+                                                            *quickdraw-path*
+- Relative path error: save the Markdown document before creating a drawing;
+  relative paths need its directory.
+
+                                                            *quickdraw-name*
+- Invalid drawing name: enter a basename such as diagram or diagram.png, not a
+  path.
+
+                                                            *quickdraw-png*
+- PNG is not editable: the file is not a valid Quickdraw PNG; it will not be
+  overwritten.
+
+                                                            *quickdraw-browser-error*
+- Browser did not open: use the URL in the warning notification.
+
+                                                            *quickdraw-buffer*
+- No link was inserted: canceling, invalid input, a failed session, or a
+  changed/non-modifiable buffer leaves the Markdown text unchanged.
+
+==============================================================================
+
+MIT license. The bundled Quickdraw core is also MIT-licensed; see
+web/quickdraw/vendor/@quickdrawjs/core/LICENSE.
+
+ vim:tw=78:ts=8:noet:ft=help:norl:
