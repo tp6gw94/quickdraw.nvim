@@ -2,6 +2,9 @@
 
 Create and edit Quickdraw drawings from Markdown in Neovim.
 
+> [!WARNING]
+> This plugin is experimental and may change or break without notice. It has been developed almost entirely with AI assistance. Review the code and keep backups of important drawings before relying on it.
+
 - Neovim >= 0.8
 - Native HTML/JavaScript editor bundled with the plugin
 - Offline at runtime: no npm, build step, CDN, or external network access
