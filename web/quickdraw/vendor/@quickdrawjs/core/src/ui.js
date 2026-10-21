@@ -83,12 +83,12 @@ const FILL_ICONS = {
   pattern: SVG('<rect x="5" y="5" width="14" height="14" rx="2"/><path d="M6 15 15 6M9 18l9-9" stroke-width="1.3"/>'),
 }
 
-const headIcons = (d) => ({
+const headIcons = (dir) => ({
   none: SVG('<path d="M5 12h14"/>'),
-  arrow: SVG(`<path d="M${12 + d * 3.5} 6.5 ${12 + d * 8} 12 ${12 + d * 3.5} 17.5"/>`),
-  triangle: SVG(`<path d="M${12 + d * 4} 6.8 ${12 + d * 8} 12 ${12 + d * 4} 17.2Z" fill="currentColor"/>`),
+  arrow: SVG(`<path d="M${12 + dir * 3.5} 6.5 ${12 + dir * 8} 12 ${12 + dir * 3.5} 17.5"/>`),
+  triangle: SVG(`<path d="M${12 + dir * 4} 6.8 ${12 + dir * 8} 12 ${12 + dir * 4} 17.2Z" fill="currentColor"/>`),
   dot: SVG('<circle cx="12" cy="12" r="3.2" fill="currentColor" stroke="none"/>'),
-  bar: SVG(`<path d="M${12 + d * 3} 6.5v11"/>`),
+  bar: SVG(`<path d="M${12 + dir * 3} 6.5v11"/>`),
 })
 const HEAD_ICONS = { start: headIcons(-1), end: headIcons(1) }
 
@@ -325,7 +325,9 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
       sizes.querySelectorAll('.qd-opt').forEach((b, i) => b.classList.toggle('on', SIZE_IDS[i] === c2.size))
       dashes.querySelectorAll('.qd-opt').forEach((b, i) => b.classList.toggle('on', DASH_IDS[i] === c2.dash))
       fills.querySelectorAll('.qd-opt').forEach((b, i) => b.classList.toggle('on', FILL_IDS[i] === c2.fill))
-      for (const [key, r] of headRows) r.querySelectorAll('.qd-opt').forEach((b, i) => b.classList.toggle('on', HEAD_IDS[i] === c2[key]))
+      for (const [key, r] of headRows) {
+        r.querySelectorAll('.qd-opt').forEach((b, i) => b.classList.toggle('on', HEAD_IDS[i] === c2[key]))
+      }
       refresh()
     }
   }

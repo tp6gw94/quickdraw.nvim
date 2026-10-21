@@ -379,18 +379,8 @@ export function arrowHeads(p) {
   const cx2 = p.dx / 2 - (p.dy / len) * bend * 2
   const cy2 = p.dy / 2 + (p.dx / len) * bend * 2
   return [
-    {
-      kind: p.headStart || 'none',
-      x: 0,
-      y: 0,
-      angle: bend ? Math.atan2(-cy2, -cx2) : Math.atan2(-p.dy, -p.dx),
-    },
-    {
-      kind: p.headEnd || 'arrow',
-      x: p.dx,
-      y: p.dy,
-      angle: bend ? Math.atan2(p.dy - cy2, p.dx - cx2) : Math.atan2(p.dy, p.dx),
-    },
+    { kind: p.headStart || 'none', x: 0, y: 0, angle: Math.atan2(-cy2, -cx2) },
+    { kind: p.headEnd || 'arrow', x: p.dx, y: p.dy, angle: Math.atan2(p.dy - cy2, p.dx - cx2) },
   ].filter((h) => h.kind !== 'none')
 }
 
@@ -474,37 +464,38 @@ export function drawShape(ctx, shape, opts) {
       else ctx.lineTo(p.dx, p.dy)
       ctx.stroke()
       ctx.setLineDash([])
-      if (shape.type === 'arrow') {
-        const hl = Math.min(Math.max(w * 3.2, 12), len * 0.4)
-        ctx.lineWidth = w
-        ctx.lineCap = 'round'
-        ctx.fillStyle = col.stroke
-        for (const h of arrowHeads(p)) {
-          const cos = Math.cos(h.angle), sin = Math.sin(h.angle)
-          if (h.kind === 'arrow') {
-            ctx.beginPath()
-            ctx.moveTo(h.x - Math.cos(h.angle - 0.5) * hl, h.y - Math.sin(h.angle - 0.5) * hl)
-            ctx.lineTo(h.x, h.y)
-            ctx.lineTo(h.x - Math.cos(h.angle + 0.5) * hl, h.y - Math.sin(h.angle + 0.5) * hl)
-            ctx.stroke()
-          } else if (h.kind === 'triangle') {
-            const hw = hl * Math.tan(0.5)
-            ctx.beginPath()
-            ctx.moveTo(h.x, h.y)
-            ctx.lineTo(h.x - cos * hl - sin * hw, h.y - sin * hl + cos * hw)
-            ctx.lineTo(h.x - cos * hl + sin * hw, h.y - sin * hl - cos * hw)
-            ctx.closePath()
-            ctx.fill()
-          } else if (h.kind === 'dot') {
-            ctx.beginPath()
-            ctx.arc(h.x, h.y, w * 1.6, 0, Math.PI * 2)
-            ctx.fill()
-          } else if (h.kind === 'bar') {
-            ctx.beginPath()
-            ctx.moveTo(h.x + sin * hl * 0.4, h.y - cos * hl * 0.4)
-            ctx.lineTo(h.x - sin * hl * 0.4, h.y + cos * hl * 0.4)
-            ctx.stroke()
-          }
+      if (shape.type !== 'arrow') break
+      const hl = Math.min(Math.max(w * 3.2, 12), len * 0.4)
+      ctx.lineWidth = w
+      ctx.lineCap = 'round'
+      ctx.fillStyle = col.stroke
+      for (const h of arrowHeads(p)) {
+        const cos = Math.cos(h.angle), sin = Math.sin(h.angle)
+        if (h.kind === 'arrow') {
+          ctx.beginPath()
+          ctx.moveTo(h.x - Math.cos(h.angle - 0.5) * hl, h.y - Math.sin(h.angle - 0.5) * hl)
+          ctx.lineTo(h.x, h.y)
+          ctx.lineTo(h.x - Math.cos(h.angle + 0.5) * hl, h.y - Math.sin(h.angle + 0.5) * hl)
+          ctx.stroke()
+        } else if (h.kind === 'triangle') {
+          const hw = hl * Math.tan(0.5)
+          const bx = h.x - cos * hl
+          const by = h.y - sin * hl
+          ctx.beginPath()
+          ctx.moveTo(h.x, h.y)
+          ctx.lineTo(bx - sin * hw, by + cos * hw)
+          ctx.lineTo(bx + sin * hw, by - cos * hw)
+          ctx.closePath()
+          ctx.fill()
+        } else if (h.kind === 'dot') {
+          ctx.beginPath()
+          ctx.arc(h.x, h.y, w * 1.6, 0, Math.PI * 2)
+          ctx.fill()
+        } else if (h.kind === 'bar') {
+          ctx.beginPath()
+          ctx.moveTo(h.x + sin * hl * 0.4, h.y - cos * hl * 0.4)
+          ctx.lineTo(h.x - sin * hl * 0.4, h.y + cos * hl * 0.4)
+          ctx.stroke()
         }
       }
       break

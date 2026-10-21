@@ -28,9 +28,7 @@ export interface Styles {
   dash: DashId
   fill: FillId
   font: FontId
-  /** Head drawn at the arrow's tail; `none` for a bare start. */
   headStart: HeadId
-  /** Head drawn at the arrow's tip. */
   headEnd: HeadId
 }
 

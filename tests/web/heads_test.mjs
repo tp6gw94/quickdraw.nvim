@@ -6,7 +6,10 @@ import { Editor } from "../../web/quickdraw/vendor/@quickdrawjs/core/src/editor.
 import { arrowHeads } from "../../web/quickdraw/vendor/@quickdrawjs/core/src/shapes.js"
 
 const close = (a, b, msg) => assert.ok(Math.abs(a - b) < 1e-9, `${msg}: ${a} vs ${b}`)
-const closePt = (h, x, y, msg) => { close(h.x, x, msg + ".x"); close(h.y, y, msg + ".y") }
+const closePt = (h, x, y, msg) => {
+  close(h.x, x, msg + ".x")
+  close(h.y, y, msg + ".y")
+}
 
 const lineish = (id, type, props = {}) => ({
   id, typeName: "shape", type, x: 0, y: 0, rot: 0, z: 1,
