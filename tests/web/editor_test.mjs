@@ -24,8 +24,14 @@ function board() {
   const drag = (x0, y0, x1, y1) => { down(x0, y0); move(x1, y1); up(x1, y1) }
   const arrow = () => ed.store.shapes().find((s) => s.type === "arrow")
   const drawArrow = (x0, y0, x1, y1) => { ed.setTool("arrow"); drag(x0, y0, x1, y1); return arrow() }
-  return { ed, down, move, up, drag, arrow, drawArrow }
+  const escape = () => ed.container.listeners.keydown({ key: "Escape", metaKey: false, ctrlKey: false, preventDefault() {} })
+  return { ed, fire, down, move, up, drag, escape, arrow, drawArrow }
 }
+
+const text = (id, x, y, t) => ({
+  id, typeName: "shape", type: "text", x, y, rot: 0, z: 1,
+  props: { text: t, color: "black", size: "m", font: "draw", autosize: true, scale: 1 },
+})
 
 const close = (a, b, msg) => assert.ok(Math.abs(a - b) < 1e-6, `${msg}: ${a} vs ${b}`)
 const closePt = (p, x, y, msg) => { close(p.x, x, msg + ".x"); close(p.y, y, msg + ".y") }
@@ -75,6 +81,44 @@ test("locked text placement keeps the text tool and commit leaves it", () => {
   assert.deepEqual(ed.store.shapes().filter((s) => s.type === "text").map((s) => s.props.text), ["hello"])
 })
 
+test("locked text tool tapping existing text edits it and keeps the text tool", () => {
+  const { ed, down, up } = board()
+  ed.store.put(text("T", 500, 500, "hi"))
+  ed.setToolLocked(true)
+  ed.setTool("text")
+  down(505, 510)
+  up(505, 510)
+  assert.equal(ed.editing.id, "T")
+  assert.equal(ed.tool, "text")
+  assert.equal(ed.selection.size, 0)
+  ed._commitText()
+  assert.equal(ed.editing, null)
+  assert.equal(ed.tool, "text")
+  assert.equal(ed.selection.size, 0)
+  assert.equal(ed.store.get("T").props.text, "hi")
+})
+
+test("a click on a rectangle's stroke with the arrow tool leaves no arrow", () => {
+  const { ed, down, up, arrow } = board()
+  ed.setTool("arrow")
+  down(102, 50)
+  up(102, 50)
+  assert.equal(arrow(), undefined)
+})
+
+test("pointercancel ends the arrow at the last move and binds there", () => {
+  const { ed, fire, down, move, arrow } = board()
+  ed.setTool("arrow")
+  down(50, 50)
+  move(340, 60)
+  fire("pointercancel", 0, 0)
+  const a = arrow()
+  assert.equal(ed.session, null)
+  closePt(lineGeometry(a).end, 340, 60, "end")
+  assert.deepEqual(a.props.endBinding, { targetId: "B", anchor: { u: 0.4, v: 0.6 } })
+  assert.equal(a.props.startBinding.targetId, "A")
+})
+
 test("dragging a bound arrow alone detaches both ends", () => {
   const { ed, drag, arrow, drawArrow } = board()
   const a = drawArrow(50, 50, 350, 50)
@@ -110,6 +154,21 @@ test("an endpoint handle drag released inside a rectangle binds to it", () => {
   move(195, 50)
   move(340, 60)
   up(340, 60)
+  const bound = arrow()
+  assert.deepEqual(bound.props.endBinding, { targetId: "B", anchor: { u: 0.4, v: 0.6 } })
+  closePt(lineGeometry(bound).end, 340, 60, "end")
+  assert.equal(bound.props.startBinding.targetId, "A")
+})
+
+test("escape during an endpoint handle drag still binds to the rectangle under the pointer", () => {
+  const { ed, down, move, escape, arrow, drawArrow } = board()
+  const a = drawArrow(50, 50, 200, 50)
+  assert.equal(a.props.startBinding.targetId, "A")
+  down(200, 50)
+  move(195, 50)
+  move(340, 60)
+  escape()
+  assert.equal(ed.session, null)
   const bound = arrow()
   assert.deepEqual(bound.props.endBinding, { targetId: "B", anchor: { u: 0.4, v: 0.6 } })
   closePt(lineGeometry(bound).end, 340, 60, "end")

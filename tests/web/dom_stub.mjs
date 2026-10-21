@@ -13,6 +13,7 @@ export const elem = () => ({
   after: noop,
   remove: noop,
   focus: noop,
+  select() {},
   setPointerCapture: noop,
   getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }),
   clientWidth: 800,
