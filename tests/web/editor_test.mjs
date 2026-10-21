@@ -101,8 +101,18 @@ test("locked text tool tapping existing text edits it and keeps the text tool", 
 test("a click on a rectangle's stroke with the arrow tool leaves no arrow", () => {
   const { ed, down, up, arrow } = board()
   ed.setTool("arrow")
-  down(102, 50)
-  up(102, 50)
+  down(101, 50)
+  assert.ok(arrow())
+  up(101, 50)
+  assert.equal(arrow(), undefined)
+})
+
+test("a jittery press at a rectangle corner leaves no arrow once both ends settle to the corner", () => {
+  const { ed, down, move, up, arrow } = board()
+  ed.setTool("arrow")
+  down(102, 100)
+  move(100, 102)
+  up(100, 102)
   assert.equal(arrow(), undefined)
 })
 
@@ -158,6 +168,21 @@ test("an endpoint handle drag released inside a rectangle binds to it", () => {
   assert.deepEqual(bound.props.endBinding, { targetId: "B", anchor: { u: 0.4, v: 0.6 } })
   closePt(lineGeometry(bound).end, 340, 60, "end")
   assert.equal(bound.props.startBinding.targetId, "A")
+})
+
+test("an endpoint handle drag released in empty space detaches only that end", () => {
+  const { down, move, up, arrow, drawArrow } = board()
+  const a = drawArrow(50, 50, 350, 50)
+  assert.equal(a.props.endBinding.targetId, "B")
+  down(350, 50)
+  move(345, 50)
+  move(500, 500)
+  up(500, 500)
+  const freed = arrow()
+  assert.equal(freed.props.endBinding, null)
+  closePt(lineGeometry(freed).end, 500, 500, "end")
+  assert.deepEqual(freed.props.startBinding, a.props.startBinding)
+  assert.equal(freed.props.startBinding.targetId, "A")
 })
 
 test("escape during an endpoint handle drag still binds to the rectangle under the pointer", () => {
