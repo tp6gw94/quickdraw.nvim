@@ -53,6 +53,24 @@ export interface AssetRecord {
   h: number
 }
 
+/** An arrow endpoint pinned to a target shape at a normalized local-bounds anchor. */
+export interface ArrowBinding {
+  targetId: string
+  anchor: { u: number; v: number }
+}
+
+/** An arrow record; a missing or null binding means that end is free. */
+export interface ArrowRecord extends ShapeRecord {
+  type: 'arrow'
+  props: Record<string, any> & {
+    dx: number
+    dy: number
+    bend: number
+    startBinding?: ArrowBinding | null
+    endBinding?: ArrowBinding | null
+  }
+}
+
 export type BoardRecord = ShapeRecord | AssetRecord
 
 /**
@@ -194,7 +212,7 @@ export interface EditorOptions {
 
 export type EditorEvent =
   | 'change' | 'history' | 'camera' | 'tool' | 'styles' | 'selection'
-  | 'theme' | 'grid' | 'edit' | 'scribbles' | 'penmode' | 'help'
+  | 'theme' | 'grid' | 'edit' | 'scribbles' | 'penmode' | 'help' | 'toollock'
 
 /**
  * The editor: camera, tools, selection, input and rendering over a Store.
@@ -214,6 +232,8 @@ export class Editor {
   styles: Styles
   geoKind: GeoId
   tool: ToolId
+  /** When set, finishing a line, arrow, shape, text or note keeps the creation tool. */
+  readonly toolLocked: boolean
   selection: Set<string>
   penMode: boolean
 
@@ -234,6 +254,8 @@ export class Editor {
 
   // tools / styles
   setTool(tool: ToolId): void
+  /** Toggle the tool lock; emits 'toollock' when the value changes. */
+  setToolLocked(locked: boolean): void
   setGeoKind(kind: GeoId): void
   /** The selected geo shapes' shared kind: undefined when none is selected, null when mixed. */
   selectedGeoKind(): GeoId | null | undefined

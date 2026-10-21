@@ -30,6 +30,7 @@ const ICONS = {
   // double chevron up (the flyout opens above the dock) — dots would read as
   // a second dot-menu next to the board menu's vertical dots
   more: SVG('<path d="m7 12.5 5-5 5 5"/><path d="m7 18.5 5-5 5 5"/>'),
+  lock: SVG('<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>'),
   // geo kinds
   rectangle: SVG('<rect width="18" height="18" x="3" y="3" rx="2"/>'),
   ellipse: SVG('<circle cx="12" cy="12" r="9"/>'),
@@ -87,7 +88,7 @@ const TIPS = {
   eraser: 'Eraser — E', laser: 'Laser — K', line: 'Line — L', arrow: 'Arrow — A',
   geo: 'Shape — G', text: 'Text — T', note: 'Sticky note — N', image: 'Insert image',
   undo: 'Undo — ⌘Z', redo: 'Redo — ⇧⌘Z', menu: 'Board menu', more: 'More tools',
-  tools: 'Tools', duplicate: 'Duplicate — ⌘D', delete: 'Delete — ⌫',
+  tools: 'Tools', duplicate: 'Duplicate — ⌘D', delete: 'Delete — ⌫', lock: 'Tool lock — Q',
 }
 
 // dock buttons in visual order (styles/more/menu ride at the end, always)
@@ -205,6 +206,10 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
   // folded mode: one button wearing the current tool's icon opens the kit
   const toolsBtn = makeBtn('tools', (e, b) => openPopover('tools', (p) => buildGrid(p, [...DOCK_NAMES]), b))
   dock.appendChild(toolsBtn)
+
+  const lockBtn = makeBtn('lock', () => editor.setToolLocked(!editor.toolLocked))
+  lockBtn.setAttribute('aria-label', 'Tool lock')
+  dock.appendChild(lockBtn)
 
   // styles button: a ring of the current color
   const styleBtn = makeBtn('styles', (e, b) => openPopover('styles', buildStyles, b))
@@ -441,6 +446,7 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
       ['Highlight', 'I'], ['Eraser', 'E'], ['Laser', 'K'],
       ['Arrow', 'A'], ['Line', 'L'], ['Shape', 'G'],
       ['Rectangle', 'R'], ['Ellipse', 'O'], ['Text', 'T'], ['Sticky note', 'N'],
+      ['Tool lock', 'Q'],
     ]},
     { label: 'Edit', rows: [
       ['Undo', '⌘Z'], ['Redo', '⇧⌘Z'], ['Select all', '⌘A'],
@@ -506,7 +512,7 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
 
   // ---- responsive fit ------------------------------------------------------
   // Instead of scaling down, the dock sheds tools into the "more" flyout as
-  // its frame narrows; below ~5 buttons of room it folds into a single
+  // its frame narrows; below ~6 buttons of room it folds into a single
   // tools button. Fixed metrics keep the math cheap and honest.
   const BTN = 34 // 32px button + 2px gap
   const PAD = 16 // dock padding + border
@@ -514,20 +520,20 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
   let mode = null
   const fit = () => {
     const avail = (root.clientWidth || 600) - 16
-    const fullW = PAD + (DOCK_NAMES.length + 2) * BTN + dividers.length * 7
+    const fullW = PAD + (DOCK_NAMES.length + 3) * BTN + dividers.length * 7
     const slots = Math.floor((avail - PAD) / BTN)
     let m, hid
     if (avail >= fullW) {
       m = 'full'
       hid = []
-    } else if (slots < 5) {
+    } else if (slots < 6) {
       m = 'mini'
       hid = [...DOCK_NAMES]
     } else {
       m = 'compact'
-      // styles/more/menu take 3 slots; select and draw are pinned; the rest
-      // of the room goes to the tools that yield last
-      const extra = Math.max(0, slots - 5)
+      // lock/styles/more/menu take 4 slots; select and draw are pinned; the
+      // rest of the room goes to the tools that yield last
+      const extra = Math.max(0, slots - 6)
       const keep = new Set(['select', 'draw'])
       for (let i = DROP_ORDER.length - 1, n = extra; i >= 0 && n > 0; i--, n--) keep.add(DROP_ORDER[i])
       hid = DOCK_NAMES.filter((n) => !keep.has(n))
@@ -566,6 +572,8 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
     // the folded button wears the active tool so the state stays visible
     toolsBtn.innerHTML = ICONS[editor.tool === 'geo' ? editor.geoKind : editor.tool] || ICONS.select
     toolsBtn.classList.toggle('on', popover?.name === 'tools')
+    lockBtn.classList.toggle('on', editor.toolLocked)
+    lockBtn.setAttribute('aria-pressed', String(editor.toolLocked))
     styleDot.style.background = editor.theme.colors[editor.currentStyles().color || 'blue'].stroke
     menuBtn.classList.toggle('on', popover?.name === 'menu')
     styleBtn.classList.toggle('on', popover?.name === 'styles')
@@ -573,6 +581,7 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
   }
   const offs = [
     editor.on('tool', refresh),
+    editor.on('toollock', refresh),
     editor.on('styles', refresh),
     editor.on('history', refresh),
     editor.on('selection', refresh),

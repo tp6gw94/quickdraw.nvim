@@ -42,6 +42,8 @@ export class Editor {
     this.styles = { ...DEFAULT_STYLES, ...(styles || {}) }
     this.geoKind = geoKind || 'rectangle'
     this.tool = 'draw'
+    this.toolLocked = false
+    this._toolIntent = 0
     this.selection = new Set()
     this.session = null
     this.editing = null // { id, textarea, field: 'text' | 'label' }
@@ -259,12 +261,34 @@ export class Editor {
   // ---- tools / styles ------------------------------------------------------
   setTool(tool) {
     if (!TOOLS.includes(tool)) return
+    this._toolIntent++
     this._commitText()
+    this._activateTool(tool)
+  }
+  _activateTool(tool) {
     this.tool = tool
     if (tool !== 'select') this.setSelection([])
     this._syncCursor()
     this.emit('tool')
     this.requestRender()
+  }
+  setToolLocked(locked) {
+    locked = !!locked
+    if (this.toolLocked === locked) return
+    this.toolLocked = locked
+    this.emit('toollock')
+  }
+  _completeCreation(creation, id, phase = 'done') {
+    if (creation && creation.intent !== this._toolIntent) return
+    const locked = !!creation && this.toolLocked
+    if (phase === 'editing') {
+      this._activateTool('select')
+      this.setSelection(locked ? [] : [id])
+    } else if (locked) this._activateTool(creation.tool)
+    else {
+      this._activateTool('select')
+      this.setSelection(id ? [id] : [])
+    }
   }
   setGeoKind(kind) {
     if (GEO_IDS.includes(kind)) { this.geoKind = kind; this.emit('tool') }
@@ -590,7 +614,7 @@ export class Editor {
       case 'note': {
         const hit = this.hitTest(p.x, p.y)
         const edit = hit && (hit.type === 'text' || hit.type === 'note') ? hit.id : null
-        this.session = { type: 'placing', tool: this.tool, page: p, edit }
+        this.session = { type: 'placing', page: p, edit, creation: { tool: this.tool, intent: this._toolIntent } }
         return
       }
       case 'select': return this._beginSelect(e, s, p)
@@ -721,7 +745,7 @@ export class Editor {
           this.setTool('select')
           this.setSelection([ss.edit])
           this._startTextEdit(ss.edit, 'text')
-        } else ss.tool === 'note' ? this._placeNote(ss.page) : this._placeText(ss.page)
+        } else ss.creation.tool === 'note' ? this._placeNote(ss.page, ss.creation) : this._placeText(ss.page, ss.creation)
         return
       }
       case 'handle': return this._endHandle(e)
@@ -912,7 +936,7 @@ export class Editor {
         ...(type === 'arrow' ? { startBinding: bindingAt(this.shapesSorted(), p), endBinding: null } : {}),
       },
     })
-    this.session = { type: 'lineish', id }
+    this.session = { type: 'lineish', id, creation: { tool: type, intent: this._toolIntent } }
   }
   _dragLineish(p, e) {
     const ss = this.session
@@ -924,7 +948,8 @@ export class Editor {
     this.store.put(withLineGeometry(s, { ...g, end }))
   }
   _endLineish(e) {
-    const s = this.store.get(this.session.id)
+    const ss = this.session
+    const s = this.store.get(ss.id)
     this.session = null
     if (s) {
       const g = lineGeometry(s)
@@ -935,7 +960,7 @@ export class Editor {
       else this.store.put(withLineGeometry(s, { ...g, end }))
     }
     this.store.endBatch()
-    if (s) { this.setTool('select'); this.setSelection([s.id]) }
+    if (s) this._completeCreation(ss.creation, s.id)
   }
 
   // ---- geo -----------------------------------------------------------------
@@ -950,7 +975,7 @@ export class Editor {
         dash: this.styles.dash, fill: this.styles.fill, font: this.styles.font,
       },
     })
-    this.session = { type: 'geo-create', id, origin: p, dragged: false }
+    this.session = { type: 'geo-create', id, origin: p, dragged: false, creation: { tool: 'geo', intent: this._toolIntent } }
   }
   _dragGeo(p, e) {
     const ss = this.session
@@ -979,11 +1004,11 @@ export class Editor {
       this.store.update(s.id, { x: s.x - 80, y: s.y - 80, props: { w: 160, h: 160 } })
     }
     this.store.endBatch()
-    if (s) { this.setTool('select'); this.setSelection([s.id]) }
+    if (s) this._completeCreation(ss.creation, s.id)
   }
 
   // ---- text / note ---------------------------------------------------------
-  _placeText(p) {
+  _placeText(p, creation = null) {
     const id = newId()
     this.store.beginBatch()
     this.store.put({
@@ -991,11 +1016,10 @@ export class Editor {
       z: this.store.maxZ() + 1,
       props: { text: '', color: this.styles.color, size: this.styles.size, font: this.styles.font, autosize: true, scale: 1 },
     })
-    this.setTool('select')
-    this.setSelection([id])
-    this._startTextEdit(id, 'text', { fresh: true })
+    this._completeCreation(creation, id, 'editing')
+    this._startTextEdit(id, 'text', { fresh: true, creation })
   }
-  _placeNote(p) {
+  _placeNote(p, creation = null) {
     const id = newId()
     this.store.beginBatch()
     this.store.put({
@@ -1003,14 +1027,13 @@ export class Editor {
       z: this.store.maxZ() + 1,
       props: { text: '', color: this.styles.color === DEFAULT_STYLES.color ? 'yellow' : this.styles.color, size: 'm', font: this.styles.font, scale: 1 },
     })
-    this.setTool('select')
-    this.setSelection([id])
-    this._startTextEdit(id, 'text', { fresh: true })
+    this._completeCreation(creation, id, 'editing')
+    this._startTextEdit(id, 'text', { fresh: true, creation })
   }
 
   // The text surface: a real textarea floated over the canvas, styled to
   // match the render, so editing feels native (IME, selection, caret).
-  _startTextEdit(id, field, { fresh = false } = {}) {
+  _startTextEdit(id, field, { fresh = false, creation = null } = {}) {
     this._commitText()
     const shape = this.store.get(id)
     if (!shape) return
@@ -1020,7 +1043,7 @@ export class Editor {
     ta.value = field === 'label' ? shape.props.label || '' : shape.props.text || ''
     ta.spellcheck = false
     this.container.appendChild(ta)
-    this.editing = { id, field, textarea: ta, fresh }
+    this.editing = { id, field, textarea: ta, fresh, creation }
     const sync = () => {
       const patch = field === 'label' ? { label: ta.value } : { text: ta.value }
       this.store.update(id, { props: patch })
@@ -1107,6 +1130,7 @@ export class Editor {
       }
     }
     this.store.endBatch()
+    if (ed.creation) this._completeCreation(ed.creation, this.store.has(ed.id) ? ed.id : null)
     this.emit('edit')
     this.requestRender()
   }
@@ -1418,6 +1442,7 @@ export class Editor {
         t: 'text', n: 'note', g: 'geo',
       }
       if (toolKeys[k]) { this.setTool(toolKeys[k]); return }
+      if (k === 'q' && !e.altKey && !e.repeat) { this.setToolLocked(!this.toolLocked); return }
       const geoKeys = { r: 'rectangle', o: 'ellipse' }
       if (geoKeys[k]) { this.setGeoKind(geoKeys[k]); this.setTool('geo'); return }
       if (e.shiftKey && k === '!') { this.fitContent({ animate: 220 }); return }
