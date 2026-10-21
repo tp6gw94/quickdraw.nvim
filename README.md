@@ -95,6 +95,7 @@ Use `Ctrl+S` or `Cmd+S`, or choose **Export as PNG** from the board menu. Saving
 
 - **Tool lock** — press `Q` or the lock button in the dock to keep the current tool after each line, arrow, shape, text, or note instead of returning to select. The lock is session state only and is not saved in the PNG.
 - **Arrow binding** — an arrow started or released inside a shape, sticky note, text, or image binds that end to it. Bound ends follow the target when it is moved, resized, rotated, or nudged; deleting the target leaves the arrow in place. Dragging an endpoint handle rebinds it where you release it; moving the arrow alone detaches both ends.
+- **Arrowheads** — with the arrow tool active or an arrow selected, the style panel adds a start and an end row. Each end takes no head, an open chevron, a filled triangle, a dot, or a bar; new arrows keep a bare start and a chevron end.
 
 ## Browser fallback
 

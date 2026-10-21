@@ -6,7 +6,7 @@
 // the standard set users already know.
 // Dependency-free ESM (see palette.js).
 
-import { COLOR_IDS, SIZE_IDS, DASH_IDS, FILL_IDS, GEO_IDS, GRID_IDS, THEMES } from './palette.js'
+import { COLOR_IDS, SIZE_IDS, DASH_IDS, FILL_IDS, HEAD_IDS, GEO_IDS, GRID_IDS, THEMES } from './palette.js'
 
 const SVG = (inner) =>
   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`
@@ -82,6 +82,15 @@ const FILL_ICONS = {
   solid: SVG('<rect x="5" y="5" width="14" height="14" rx="2" fill="currentColor" fill-opacity="0.45" stroke="none"/><rect x="5" y="5" width="14" height="14" rx="2"/>'),
   pattern: SVG('<rect x="5" y="5" width="14" height="14" rx="2"/><path d="M6 15 15 6M9 18l9-9" stroke-width="1.3"/>'),
 }
+
+const headIcons = (d) => ({
+  none: SVG('<path d="M5 12h14"/>'),
+  arrow: SVG(`<path d="M${12 + d * 3.5} 6.5 ${12 + d * 8} 12 ${12 + d * 3.5} 17.5"/>`),
+  triangle: SVG(`<path d="M${12 + d * 4} 6.8 ${12 + d * 8} 12 ${12 + d * 4} 17.2Z" fill="currentColor"/>`),
+  dot: SVG('<circle cx="12" cy="12" r="3.2" fill="currentColor" stroke="none"/>'),
+  bar: SVG(`<path d="M${12 + d * 3} 6.5v11"/>`),
+})
+const HEAD_ICONS = { start: headIcons(-1), end: headIcons(1) }
 
 const TIPS = {
   select: 'Select — V', hand: 'Hand — H', draw: 'Draw — D', highlight: 'Highlight — I',
@@ -294,12 +303,29 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
       b.addEventListener('click', (e) => { e.stopPropagation(); editor.setStyle('fill', f); restyle() })
       fills.appendChild(b)
     }
+    const headRows = []
+    const arrowInPlay = editor.tool === 'arrow'
+      || [...editor.selection].some((id) => editor.store.get(id)?.type === 'arrow')
+    if (arrowInPlay) {
+      for (const [key, side] of [['headStart', 'start'], ['headEnd', 'end']]) {
+        const r = row('qd-heads-' + side)
+        headRows.push([key, r])
+        for (const id of HEAD_IDS) {
+          const b = el('button', 'qd-opt' + (cur[key] === id ? ' on' : ''))
+          b.title = (side === 'start' ? 'Start: ' : 'End: ') + id
+          b.innerHTML = HEAD_ICONS[side][id]
+          b.addEventListener('click', (e) => { e.stopPropagation(); editor.setStyle(key, id); restyle() })
+          r.appendChild(b)
+        }
+      }
+    }
     function restyle() {
       const c2 = editor.currentStyles()
       colors.querySelectorAll('.qd-dot').forEach((b, i) => b.classList.toggle('on', COLOR_IDS[i] === c2.color))
       sizes.querySelectorAll('.qd-opt').forEach((b, i) => b.classList.toggle('on', SIZE_IDS[i] === c2.size))
       dashes.querySelectorAll('.qd-opt').forEach((b, i) => b.classList.toggle('on', DASH_IDS[i] === c2.dash))
       fills.querySelectorAll('.qd-opt').forEach((b, i) => b.classList.toggle('on', FILL_IDS[i] === c2.fill))
+      for (const [key, r] of headRows) r.querySelectorAll('.qd-opt').forEach((b, i) => b.classList.toggle('on', HEAD_IDS[i] === c2[key]))
       refresh()
     }
   }

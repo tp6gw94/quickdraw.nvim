@@ -19,7 +19,7 @@ const RESIZE_CURSORS = {
   tl: 'nwse-resize', br: 'nwse-resize', tr: 'nesw-resize', bl: 'nesw-resize',
   t: 'ns-resize', b: 'ns-resize', l: 'ew-resize', r: 'ew-resize',
 }
-const DEFAULT_STYLES = { color: 'blue', size: 'm', dash: 'draw', fill: 'none', font: 'draw' }
+const DEFAULT_STYLES = { color: 'blue', size: 'm', dash: 'draw', fill: 'none', font: 'draw', headStart: 'none', headEnd: 'arrow' }
 
 export const TOOLS = ['select', 'hand', 'draw', 'highlight', 'eraser', 'laser', 'arrow', 'line', 'geo', 'text', 'note']
 
@@ -377,6 +377,8 @@ export class Editor {
         dash: ['draw', 'geo', 'arrow', 'line'],
         fill: ['geo'],
         font: ['text', 'note', 'geo'],
+        headStart: ['arrow'],
+        headEnd: ['arrow'],
       }
       this.store.transact(() => {
         for (const id of this.selection) {
@@ -394,7 +396,7 @@ export class Editor {
     for (const id of this.selection) {
       const s = this.store.get(id)
       if (!s) continue
-      for (const k of ['color', 'size', 'dash', 'fill', 'font']) {
+      for (const k of ['color', 'size', 'dash', 'fill', 'font', 'headStart', 'headEnd']) {
         if (s.props[k] === undefined) continue
         if (!(k in out)) out[k] = s.props[k]
         else if (out[k] !== s.props[k]) out[k] = null
@@ -923,6 +925,7 @@ export class Editor {
         dx: 0.01, dy: 0.01, bend: 0,
         color: this.styles.color, size: this.styles.size,
         dash: this.styles.dash === 'draw' ? 'solid' : this.styles.dash,
+        ...(type === 'arrow' ? { headStart: this.styles.headStart, headEnd: this.styles.headEnd } : {}),
       },
     })
     this.session = { type: 'lineish', id }

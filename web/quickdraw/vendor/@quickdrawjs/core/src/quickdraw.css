@@ -290,6 +290,8 @@
   transition: background 140ms ease, color 140ms ease;
 }
 .qd-opt svg { width: 20px; height: 20px; }
+.qd-heads-start .qd-opt,
+.qd-heads-end .qd-opt { width: 34px; }
 .qd-opt:hover { background: var(--qd-hover); }
 .qd-opt.on { background: var(--qd-on-bg); color: var(--qd-on-ink); }
 .qd-size-pip {

@@ -14,6 +14,7 @@ export type SizeId = 's' | 'm' | 'l' | 'xl'
 export type DashId = 'draw' | 'solid' | 'dashed' | 'dotted'
 export type FillId = 'none' | 'semi' | 'solid' | 'pattern'
 export type FontId = 'draw' | 'sans' | 'serif' | 'mono'
+export type HeadId = 'none' | 'arrow' | 'triangle' | 'dot' | 'bar'
 export type GeoId = 'rectangle' | 'ellipse' | 'triangle' | 'diamond' | 'hexagon' | 'star' | 'cloud'
 export type ThemeId = 'light' | 'dark'
 export type GridId = 'none' | 'lines' | 'ruled' | 'dots' | 'crosses' | 'iso'
@@ -27,6 +28,10 @@ export interface Styles {
   dash: DashId
   fill: FillId
   font: FontId
+  /** Head drawn at the arrow's tail; `none` for a bare start. */
+  headStart: HeadId
+  /** Head drawn at the arrow's tip. */
+  headEnd: HeadId
 }
 
 export type ShapeType =
@@ -115,6 +120,7 @@ export const COLOR_IDS: ColorId[]
 export const SIZE_IDS: SizeId[]
 export const DASH_IDS: DashId[]
 export const FILL_IDS: FillId[]
+export const HEAD_IDS: HeadId[]
 export const GEO_IDS: GeoId[]
 export const GRID_IDS: GridId[]
 export const THEMES: Record<ThemeId, Theme>
