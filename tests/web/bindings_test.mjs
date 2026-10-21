@@ -138,6 +138,8 @@ test("bindingAt binds inside real shape bodies only and ignores shapes above the
   assert.equal(bindingAt(shapes, { x: 201, y: 1 }), null)
   assert.deepEqual(bindingAt(shapes, { x: 250, y: 50 }), { targetId: "tilted", anchor: { u: 0.5, v: 0.5 } })
   assert.equal(bindingAt(shapes, { x: 150, y: 150 }), null)
+  assert.deepEqual(bindingAt(shapes, { x: 103, y: 50 }), { targetId: "hollow", anchor: { u: 1, v: 0.5 } })
+  assert.equal(bindingAt(shapes, { x: 105, y: 50 }), null)
 })
 
 test("mapBindingTargets retargets through the remap and detaches the rest", () => {
