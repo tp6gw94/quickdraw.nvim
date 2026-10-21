@@ -6,6 +6,7 @@
 
 import {
   SIZES, INK_SIZES, FONT_SIZES, NOTE_FONT_SIZES, FONTS, HIGHLIGHT_ALPHA, HIGHLIGHT_SCALE,
+  HEAD_DEFAULTS,
 } from './palette.js'
 import {
   ptsBounds, rotWith, distToPolyline, pointInPolygon, pointInEllipse,
@@ -379,8 +380,8 @@ export function arrowHeads(p) {
   const cx2 = p.dx / 2 - (p.dy / len) * bend * 2
   const cy2 = p.dy / 2 + (p.dx / len) * bend * 2
   return [
-    { kind: p.headStart || 'none', x: 0, y: 0, angle: Math.atan2(-cy2, -cx2) },
-    { kind: p.headEnd || 'arrow', x: p.dx, y: p.dy, angle: Math.atan2(p.dy - cy2, p.dx - cx2) },
+    { kind: p.headStart ?? HEAD_DEFAULTS.headStart, x: 0, y: 0, angle: Math.atan2(-cy2, -cx2) },
+    { kind: p.headEnd ?? HEAD_DEFAULTS.headEnd, x: p.dx, y: p.dy, angle: Math.atan2(p.dy - cy2, p.dx - cx2) },
   ].filter((h) => h.kind !== 'none')
 }
 

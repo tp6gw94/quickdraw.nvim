@@ -122,6 +122,7 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
   root.addEventListener('keydown', onKeyDown, true)
 
   let popover = null // { name, el }
+  const arrowInPlay = () => editor.tool === 'arrow' || [...editor.selection].some((id) => editor.store.get(id)?.type === 'arrow')
   const closePopover = () => {
     if (popover) { popover.el.remove(); popover = null; refresh() }
   }
@@ -132,6 +133,7 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
     build(p)
     ui.appendChild(p)
     popover = { name, el: p }
+    if (name === 'styles') popover.arrows = arrowInPlay()
     // keep it inside the frame, roughly above its anchor
     requestAnimationFrame(() => {
       const ar = anchor.getBoundingClientRect()
@@ -304,9 +306,7 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
       fills.appendChild(b)
     }
     const headRows = []
-    const arrowInPlay = editor.tool === 'arrow'
-      || [...editor.selection].some((id) => editor.store.get(id)?.type === 'arrow')
-    if (arrowInPlay) {
+    if (arrowInPlay()) {
       for (const [key, side] of [['headStart', 'start'], ['headEnd', 'end']]) {
         const r = row('qd-heads-' + side)
         headRows.push([key, r])
@@ -606,6 +606,10 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
     menuBtn.classList.toggle('on', popover?.name === 'menu')
     styleBtn.classList.toggle('on', popover?.name === 'styles')
     moreBtn.classList.toggle('on', popover?.name === 'more')
+    if (popover?.name === 'styles' && popover.arrows !== arrowInPlay()) {
+      closePopover()
+      openPopover('styles', buildStyles, styleBtn)
+    }
   }
   const offs = [
     editor.on('tool', refresh),

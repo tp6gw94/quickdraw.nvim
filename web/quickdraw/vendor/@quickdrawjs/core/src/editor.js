@@ -4,7 +4,7 @@
 // Dependency-free ESM: runs in any modern browser as-is, no build step.
 
 import { Store, newId } from './store.js'
-import { themeOf, SIZES, FONT_SIZES, FONTS, GEO_IDS, COLOR_IDS, GRID_IDS, GRID_STEP, GRID_BAND, GRID_MAJOR } from './palette.js'
+import { themeOf, SIZES, FONT_SIZES, FONTS, GEO_IDS, COLOR_IDS, GRID_IDS, GRID_STEP, GRID_BAND, GRID_MAJOR, HEAD_DEFAULTS } from './palette.js'
 import {
   localBounds, pageBounds, toLocal, toPage, drawShape, hitShape, marqueeHits,
   scaleShape, textLayout, noteLayout, NOTE_W, resetTextLayouts, lineGeometry, withLineGeometry,
@@ -19,7 +19,7 @@ const RESIZE_CURSORS = {
   tl: 'nwse-resize', br: 'nwse-resize', tr: 'nesw-resize', bl: 'nesw-resize',
   t: 'ns-resize', b: 'ns-resize', l: 'ew-resize', r: 'ew-resize',
 }
-const DEFAULT_STYLES = { color: 'blue', size: 'm', dash: 'draw', fill: 'none', font: 'draw', headStart: 'none', headEnd: 'arrow' }
+const DEFAULT_STYLES = { color: 'blue', size: 'm', dash: 'draw', fill: 'none', font: 'draw', ...HEAD_DEFAULTS }
 
 export const TOOLS = ['select', 'hand', 'draw', 'highlight', 'eraser', 'laser', 'arrow', 'line', 'geo', 'text', 'note']
 
@@ -397,9 +397,10 @@ export class Editor {
       const s = this.store.get(id)
       if (!s) continue
       for (const k of ['color', 'size', 'dash', 'fill', 'font', 'headStart', 'headEnd']) {
-        if (s.props[k] === undefined) continue
-        if (!(k in out)) out[k] = s.props[k]
-        else if (out[k] !== s.props[k]) out[k] = null
+        const v = s.type === 'arrow' && k in HEAD_DEFAULTS ? (s.props[k] ?? HEAD_DEFAULTS[k]) : s.props[k]
+        if (v === undefined) continue
+        if (!(k in out)) out[k] = v
+        else if (out[k] !== v) out[k] = null
       }
     }
     return { ...this.styles, ...out }

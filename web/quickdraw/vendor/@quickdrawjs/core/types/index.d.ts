@@ -119,6 +119,7 @@ export const SIZE_IDS: SizeId[]
 export const DASH_IDS: DashId[]
 export const FILL_IDS: FillId[]
 export const HEAD_IDS: HeadId[]
+export const HEAD_DEFAULTS: Record<'headStart' | 'headEnd', HeadId>
 export const GEO_IDS: GeoId[]
 export const GRID_IDS: GridId[]
 export const THEMES: Record<ThemeId, Theme>
