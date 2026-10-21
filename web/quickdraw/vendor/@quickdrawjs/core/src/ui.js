@@ -37,6 +37,7 @@ const ICONS = {
   diamond: SVG('<path d="M2.7 10.3a2.41 2.41 0 0 0 0 3.41l7.59 7.59a2.41 2.41 0 0 0 3.41 0l7.59-7.59a2.41 2.41 0 0 0 0-3.41l-7.59-7.59a2.41 2.41 0 0 0-3.41 0Z"/>'),
   hexagon: SVG('<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>'),
   star: SVG('<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>'),
+  cloud: SVG(`<path d="M7 17h10a4 4 0 0 0 .5-8A5.5 5.5 0 0 0 7 10a3.5 3.5 0 0 0 0 7z"/>`),
   // menu glyphs
   download: SVG('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>'),
   transparent: SVG('<rect width="18" height="18" x="3" y="3" rx="2"/><rect x="4" y="4" width="8" height="8" fill="currentColor" fill-opacity=".22" stroke="none"/><rect x="12" y="12" width="8" height="8" fill="currentColor" fill-opacity=".22" stroke="none"/>'),
@@ -142,18 +143,25 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
   }
   // the shape button: every tap arms the current kind AND shows the kinds,
   // so picking a shape never takes a second hunt for the menu
+  // With geo shapes selected the kinds re-kind them instead, and the tool
+  // (and so the selection) stays put.
   const geoTap = (b) => {
-    editor.setTool('geo')
+    const selKind = editor.selectedGeoKind()
+    const rekind = selKind !== undefined
+    if (!rekind) editor.setTool('geo')
     openPopover('geo', (p) => {
       p.classList.add('qd-geo-pop')
       for (const g of GEO_IDS) {
-        const gb = el('button', 'qd-tool' + (editor.geoKind === g ? ' on' : ''))
+        const gb = el('button', 'qd-tool' + ((rekind ? selKind : editor.geoKind) === g ? ' on' : ''))
         gb.innerHTML = ICONS[g]
         gb.title = g
         gb.addEventListener('click', (ev) => {
           ev.stopPropagation()
-          editor.setGeoKind(g)
-          editor.setTool('geo')
+          if (rekind) editor.setSelectedGeoKind(g)
+          else {
+            editor.setGeoKind(g)
+            editor.setTool('geo')
+          }
           closePopover()
         })
         p.appendChild(gb)
@@ -426,6 +434,75 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
     a.click()
     setTimeout(() => URL.revokeObjectURL(a.href), 5000)
   }
+  // ---- keyboard help overlay (press ?) -----------------------------------
+  const SHORTCUTS = [
+    { label: 'Tools', rows: [
+      ['Select', 'V / 1'], ['Hand (hold Space)', 'H'], ['Draw', 'D / P / B'],
+      ['Highlight', 'I'], ['Eraser', 'E'], ['Laser', 'K'],
+      ['Arrow', 'A'], ['Line', 'L'], ['Shape', 'G'],
+      ['Rectangle', 'R'], ['Ellipse', 'O'], ['Text', 'T'], ['Sticky note', 'N'],
+    ]},
+    { label: 'Edit', rows: [
+      ['Undo', '⌘Z'], ['Redo', '⇧⌘Z'], ['Select all', '⌘A'],
+      ['Copy', '⌘C'], ['Cut', '⌘X'], ['Paste', '⌘V'], ['Duplicate', '⌘D'],
+    ]},
+    { label: 'Arrange', rows: [
+      ['Bring to front', ']'], ['Send to back', '['], ['Nudge', 'Arrows (Shift = 8px)'],
+    ]},
+    { label: 'View', rows: [
+      ['Zoom to fit', '⇧1'], ['Reset zoom', '⇧0'], ['Zoom in / out', '⌘+ / ⌘−'],
+    ]},
+    { label: 'Board', rows: [
+      ['Delete selection', '⌫'], ['Clear board', '⇧⌘⌫'],
+      ['Edit / finish text', 'Enter'], ['Cancel / deselect', 'Esc'],
+    ]},
+    { label: 'Help', rows: [['Keyboard shortcuts', '?']] },
+  ]
+  const buildHelp = () => {
+    const backdrop = el('div', 'qd-help-backdrop')
+    const panel = el('div', 'qd-help-panel')
+    const head = el('div', 'qd-help-head')
+    const title = el('div', 'qd-help-title'); title.textContent = 'Keyboard shortcuts'
+    const close = el('button', 'qd-help-close')
+    close.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>'
+    close.setAttribute('aria-label', 'Close')
+    head.appendChild(title); head.appendChild(close)
+    panel.appendChild(head)
+    for (const g of SHORTCUTS) {
+      const sec = el('div', 'qd-help-group')
+      const gl = el('div', 'qd-help-glabel'); gl.textContent = g.label
+      sec.appendChild(gl)
+      for (const [name, keys] of g.rows) {
+        const row = el('div', 'qd-help-row')
+        const nm = el('span', 'qd-help-name'); nm.textContent = name
+        const kc = el('span', 'qd-help-keys'); kc.textContent = keys
+        row.appendChild(nm); row.appendChild(kc)
+        sec.appendChild(row)
+      }
+      panel.appendChild(sec)
+    }
+    backdrop.appendChild(panel)
+    backdrop.addEventListener('pointerdown', (e) => { if (e.target === backdrop) closeHelp() })
+    close.addEventListener('click', () => closeHelp())
+    return backdrop
+  }
+  let helpEl = null
+  const closeHelp = () => {
+    if (!helpEl) return
+    helpEl.remove(); helpEl = null
+    document.removeEventListener('keydown', onHelpKey, true)
+  }
+  const onHelpKey = (e) => {
+    if (e.key === 'Escape' || e.key === '?') { e.preventDefault(); e.stopPropagation(); closeHelp() }
+  }
+  const toggleHelp = () => {
+    if (helpEl) { closeHelp(); return }
+    helpEl = buildHelp()
+    ui.appendChild(helpEl)
+    document.addEventListener('keydown', onHelpKey, true)
+    refresh()
+  }
+  editor.on('help', toggleHelp)
 
   // ---- responsive fit ------------------------------------------------------
   // Instead of scaling down, the dock sheds tools into the "more" flyout as
@@ -480,7 +557,7 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
       b.classList.toggle('on', editor.tool === n)
     }
     const geoBtn = dockBtns.get('geo')
-    geoBtn.innerHTML = ICONS[editor.geoKind]
+    geoBtn.innerHTML = ICONS[editor.selectedGeoKind() || editor.geoKind]
     actBtns.get('undo').disabled = !editor.store.canUndo
     actBtns.get('redo').disabled = !editor.store.canRedo
     const hasSel = editor.selection.size > 0
@@ -489,7 +566,7 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
     // the folded button wears the active tool so the state stays visible
     toolsBtn.innerHTML = ICONS[editor.tool === 'geo' ? editor.geoKind : editor.tool] || ICONS.select
     toolsBtn.classList.toggle('on', popover?.name === 'tools')
-    styleDot.style.background = editor.theme.colors[editor.currentStyles().color || 'black'].stroke
+    styleDot.style.background = editor.theme.colors[editor.currentStyles().color || 'blue'].stroke
     menuBtn.classList.toggle('on', popover?.name === 'menu')
     styleBtn.classList.toggle('on', popover?.name === 'styles')
     moreBtn.classList.toggle('on', popover?.name === 'more')
@@ -524,6 +601,7 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
       ro.disconnect()
       root.removeEventListener('keydown', onKeyDown, true)
       root.removeEventListener('pointerdown', closeOnCanvas, { capture: true })
+      closeHelp()
       ui.remove()
     },
   }

@@ -153,6 +153,32 @@ export const wobblePolyline = (pts, seed, { step = 24, amp = 1.6, closed = true 
   return out
 }
 
+// a hand-drawn polygon: each edge is one gentle bow and every corner sits a
+// hair off true — it reads as drawn by hand, not traced by a shaky pen. The
+// bow scales with the edge but never past `maxBow`, so a big box stays calm.
+// Output is a dense closed polyline (no repeated start point).
+export const bowPolygon = (pts, seed, { bow = 0.006, maxBow = 1.3, jitter = 0.45, step = 10 } = {}) => {
+  const rand = seededRand(seed)
+  const n = pts.length / 2
+  const c = new Array(n * 2)
+  for (let i = 0; i < n * 2; i++) c[i] = pts[i] + (rand() * 2 - 1) * jitter
+  const out = []
+  for (let i = 0; i < n; i++) {
+    const ax = c[i * 2], ay = c[i * 2 + 1]
+    const bx = c[((i + 1) % n) * 2], by = c[((i + 1) % n) * 2 + 1]
+    const len = Math.hypot(bx - ax, by - ay)
+    const nx = -(by - ay) / (len || 1), ny = (bx - ax) / (len || 1)
+    const k = (rand() * 2 - 1) * Math.min(maxBow, len * bow)
+    const count = Math.max(1, Math.ceil(len / step))
+    for (let s = 0; s < count; s++) {
+      const t = s / count
+      const off = 4 * t * (1 - t) * k
+      out.push(ax + (bx - ax) * t + nx * off, ay + (by - ay) * t + ny * off)
+    }
+  }
+  return out
+}
+
 // ---- geo polygon builders (local space, box w×h) ---------------------------
 
 export const geoPolygon = (geo, w, h) => {
@@ -175,6 +201,8 @@ export const geoPolygon = (geo, w, h) => {
       }
       return pts
     }
+    case 'cloud':
+      return cloudPolygon(w, h)
     case 'rectangle':
     default:
       return [0, 0, w, 0, w, h, 0, h]
@@ -188,6 +216,49 @@ export const ellipsePolygon = (w, h, n = 32) => {
     const a = (i / n) * Math.PI * 2
     pts.push(w / 2 + (Math.cos(a) * w) / 2, h / 2 + (Math.sin(a) * h) / 2)
   }
+  return pts
+}
+
+// The cloud outline, as cubic Bézier segments in unit space (fractions of
+// w/h). One source of truth: cloudPolygon() samples these for hit-testing and
+// for the wobbled 'draw' path, while shapes.js strokes them directly for the
+// crisp dash styles — move the curve here and both follow.
+export const CLOUD_START = [0.15, 0.62]
+export const CLOUD_CURVES = [
+  // [c1x, c1y, c2x, c2y, endX, endY] — each picks up where the last ended
+  [0.02, 0.60, 0.02, 0.38, 0.16, 0.35],
+  [0.16, 0.15, 0.36, 0.10, 0.46, 0.20],
+  [0.54, 0.10, 0.74, 0.10, 0.82, 0.32],
+  [0.98, 0.32, 0.98, 0.58, 0.84, 0.60],
+  [0.82, 0.74, 0.66, 0.80, 0.55, 0.75],
+  [0.44, 0.70, 0.28, 0.78, 0.24, 0.68],
+  [0.22, 0.65, 0.18, 0.62, 0.15, 0.62],
+]
+
+// cloud sampled as a polygon (hit-testing / selection)
+export const cloudPolygon = (w, h, steps = 12) => {
+  let px = CLOUD_START[0] * w
+  let py = CLOUD_START[1] * h
+  const pts = [px, py]
+  for (const [c1x, c1y, c2x, c2y, ex, ey] of CLOUD_CURVES) {
+    const x1 = c1x * w, y1 = c1y * h
+    const x2 = c2x * w, y2 = c2y * h
+    const x3 = ex * w, y3 = ey * h
+    // start at i=1: t=0 is the previous segment's end, already in the list
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps
+      const mt = 1 - t
+      pts.push(
+        mt * mt * mt * px + 3 * mt * mt * t * x1 + 3 * mt * t * t * x2 + t * t * t * x3,
+        mt * mt * mt * py + 3 * mt * mt * t * y1 + 3 * mt * t * t * y2 + t * t * t * y3,
+      )
+    }
+    px = x3
+    py = y3
+  }
+  // the last curve lands back on the start point — drop it so the closed
+  // polygon has no zero-length edge
+  pts.length -= 2
   return pts
 }
 

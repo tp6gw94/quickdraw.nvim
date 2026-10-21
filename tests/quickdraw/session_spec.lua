@@ -1977,6 +1977,16 @@ describe("quickdraw session HTTP foundation", function()
         content_type = "text/css; charset=utf-8",
         marker = ".qd-root",
       },
+      {
+        path = "/vendor/@quickdrawjs/core/src/fonts/libre-baskerville-latin-500.woff2",
+        content_type = "font/woff2",
+        body = read_binary("web/quickdraw/vendor/@quickdrawjs/core/src/fonts/libre-baskerville-latin-500.woff2"),
+      },
+      {
+        path = "/vendor/@quickdrawjs/core/src/fonts/libre-baskerville-latin-ext-500.woff2",
+        content_type = "font/woff2",
+        body = read_binary("web/quickdraw/vendor/@quickdrawjs/core/src/fonts/libre-baskerville-latin-ext-500.woff2"),
+      },
     }
 
     for _, asset in ipairs(assets) do

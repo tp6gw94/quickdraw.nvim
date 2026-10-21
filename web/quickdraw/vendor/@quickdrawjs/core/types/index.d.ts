@@ -14,9 +14,9 @@ export type SizeId = 's' | 'm' | 'l' | 'xl'
 export type DashId = 'draw' | 'solid' | 'dashed' | 'dotted'
 export type FillId = 'none' | 'semi' | 'solid' | 'pattern'
 export type FontId = 'draw' | 'sans' | 'serif' | 'mono'
-export type GeoId = 'rectangle' | 'ellipse' | 'triangle' | 'diamond' | 'hexagon' | 'star'
+export type GeoId = 'rectangle' | 'ellipse' | 'triangle' | 'diamond' | 'hexagon' | 'star' | 'cloud'
 export type ThemeId = 'light' | 'dark'
-export type GridId = 'none' | 'lines' | 'dots'
+export type GridId = 'none' | 'lines' | 'ruled' | 'dots' | 'crosses' | 'iso'
 
 export interface Bounds { x: number; y: number; w: number; h: number }
 export interface Camera { x: number; y: number; z: number }
@@ -194,7 +194,7 @@ export interface EditorOptions {
 
 export type EditorEvent =
   | 'change' | 'history' | 'camera' | 'tool' | 'styles' | 'selection'
-  | 'theme' | 'grid' | 'edit' | 'scribbles' | 'penmode'
+  | 'theme' | 'grid' | 'edit' | 'scribbles' | 'penmode' | 'help'
 
 /**
  * The editor: camera, tools, selection, input and rendering over a Store.
@@ -235,8 +235,12 @@ export class Editor {
   // tools / styles
   setTool(tool: ToolId): void
   setGeoKind(kind: GeoId): void
+  /** The selected geo shapes' shared kind: undefined when none is selected, null when mixed. */
+  selectedGeoKind(): GeoId | null | undefined
+  /** Re-kind the selected geo shapes in place; the selection stays. */
+  setSelectedGeoKind(kind: GeoId): void
   setTheme(id: ThemeId | string): void
-  /** 'none' | 'lines' | 'dots' — the backdrop behind the drawing. */
+  /** 'none' | 'lines' | 'ruled' | 'dots' | 'crosses' | 'iso' — the backdrop behind the drawing. */
   setGrid(id: GridId): void
   setReadonly(ro: boolean): void
   setPenMode(on: boolean): void

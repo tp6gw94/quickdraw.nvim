@@ -24,7 +24,7 @@ import '@quickdrawjs/core/quickdraw.css'
 const board = createQuickdraw({
   container: document.getElementById('board'),
   theme: 'light', // or 'dark'
-  grid: 'lines',  // 'none' (default) | 'lines' | 'dots'
+  grid: 'lines',  // 'none' | 'lines' (default) | 'ruled' | 'dots' | 'crosses' | 'iso'
 })
 
 // the document store emits a diff after every change
@@ -49,7 +49,7 @@ without you building any chrome:
 
 ```js
 board.editor.setTheme('dark')     // emits 'theme'
-board.editor.setGrid('dots')      // 'none' | 'lines' | 'dots', emits 'grid'
+board.editor.setGrid('dots')      // 'none' | 'lines' (default) | 'ruled' | 'dots' | 'crosses' | 'iso', emits 'grid'
 board.editor.clearBoard()         // one undoable step (⇧⌘⌫)
 
 // mirror in-board switches into your own app state
@@ -107,7 +107,7 @@ Remote diffs don't enter local undo history, so collaborative undo stays sane.
 const blob = await editor.exportImage({ background: true, scale: 2 })
 ```
 
-See the [repository README](https://github.com/nmndwivedi/quickdraw) for the
+See the [repository README](https://github.com/quickdrawjs/quickdraw) for the
 full API, data model and guides.
 
 ## License

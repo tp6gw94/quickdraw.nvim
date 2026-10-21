@@ -58,8 +58,8 @@ export const THEMES = {
     // far less ink than a rule of the same weight, so they run darker to land
     // at the same visual quiet.
     grid: {
-      line: { minor: 'rgba(60, 50, 30, 0.13)', major: 'rgba(60, 50, 30, 0.26)' },
-      dot: { minor: 'rgba(60, 50, 30, 0.26)', major: 'rgba(60, 50, 30, 0.45)' },
+      line: { minor: 'rgba(60, 50, 30, 0.30)', major: 'rgba(60, 50, 30, 0.52)' },
+      dot: { minor: 'rgba(60, 50, 30, 0.52)', major: 'rgba(60, 50, 30, 0.72)' },
     },
   },
   dark: {
@@ -72,8 +72,8 @@ export const THEMES = {
     handleFill: '#26231c',
     scribble: '#f2555a',
     grid: {
-      line: { minor: 'rgba(255, 246, 224, 0.10)', major: 'rgba(255, 246, 224, 0.20)' },
-      dot: { minor: 'rgba(255, 246, 224, 0.20)', major: 'rgba(255, 246, 224, 0.36)' },
+      line: { minor: 'rgba(255, 246, 224, 0.38)', major: 'rgba(255, 246, 224, 0.58)' },
+      dot: { minor: 'rgba(255, 246, 224, 0.56)', major: 'rgba(255, 246, 224, 0.76)' },
     },
   },
 }
@@ -83,7 +83,10 @@ export const THEMES = {
 // crosses (blueprint style), and an isometric triangle weave.
 export const GRID_IDS = ['none', 'lines', 'ruled', 'dots', 'crosses', 'iso']
 // Lattice spacing in page px at zoom 1, and the every-Nth emphasis.
-export const GRID_STEP = 40
+export const GRID_STEP = 80
+// The finest step the grid draws, in screen px: the lattice it shows spans
+// GRID_BAND·2 to GRID_BAND·4 between levels.
+export const GRID_BAND = 40
 export const GRID_MAJOR = 5
 
 export const themeOf = (id) => THEMES[id === 'dark' ? 'dark' : 'light']
@@ -104,13 +107,15 @@ export const DASH_IDS = ['draw', 'solid', 'dashed', 'dotted']
 export const FILL_IDS = ['none', 'semi', 'solid', 'pattern']
 
 export const FONTS = {
-  draw: "'Segoe Print', 'Comic Sans MS', 'Chalkboard SE', cursive",
+  // 'Quickdraw Hand' is Libre Baskerville, bundled via quickdraw.css; the rest are
+  // the fallbacks while it loads (or if the stylesheet isn't included)
+  draw: "'Quickdraw Hand', 'Libre Baskerville', 'Baskerville', Georgia, serif",
   sans: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif",
   serif: "'Iowan Old Style', 'New York', Palatino, Georgia, serif",
   mono: "'SF Mono', ui-monospace, Menlo, monospace",
 }
 
-export const GEO_IDS = ['rectangle', 'ellipse', 'triangle', 'diamond', 'hexagon', 'star']
+export const GEO_IDS = ['rectangle', 'ellipse', 'triangle', 'diamond', 'hexagon', 'star', 'cloud']
 
 // Highlighter: wide translucent band that multiplies into the paper.
 export const HIGHLIGHT_ALPHA = 0.55

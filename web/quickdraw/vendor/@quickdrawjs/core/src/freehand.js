@@ -39,14 +39,21 @@ export function strokeOutline(pts, { size = 4, thinning = 0.55, streamline = 0.3
     }
     radii[i] = Math.max(0.35, (size / 2) * (1 - thinning + thinning * p))
   }
-  // taper the tips so strokes start and end in a point
+  // taper the tips so strokes start and end in a point — over a fixed,
+  // short distance (~2 widths): counting samples instead stretched fast
+  // strokes into long tails, since quick motion spaces the samples out
   if (taper) {
-    const t = Math.min(n, 6)
-    for (let i = 0; i < t; i++) {
-      const k = (i + 1) / (t + 1)
-      radii[i] *= 0.4 + 0.6 * k
-      radii[n - 1 - i] *= 0.4 + 0.6 * k
+    const span = size * 2
+    const ease = (from, step) => {
+      let d = 0
+      for (let i = from; i >= 0 && i < n; i += step) {
+        if (i !== from) d += Math.hypot(sp[i * 2] - sp[(i - step) * 2], sp[i * 2 + 1] - sp[(i - step) * 2 + 1])
+        if (d >= span) break
+        radii[i] *= 0.5 + 0.5 * (d / span)
+      }
     }
+    ease(0, 1)
+    ease(n - 1, -1)
   }
 
   // 3. offset both ways along the spine

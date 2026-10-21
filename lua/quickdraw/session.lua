@@ -66,6 +66,16 @@ local EDITOR_ASSETS = {
     file = "web/quickdraw/vendor/@quickdrawjs/core/src/quickdraw.css",
     content_type = "text/css; charset=utf-8",
   },
+  {
+    route = "/vendor/@quickdrawjs/core/src/fonts/libre-baskerville-latin-500.woff2",
+    file = "web/quickdraw/vendor/@quickdrawjs/core/src/fonts/libre-baskerville-latin-500.woff2",
+    content_type = "font/woff2",
+  },
+  {
+    route = "/vendor/@quickdrawjs/core/src/fonts/libre-baskerville-latin-ext-500.woff2",
+    file = "web/quickdraw/vendor/@quickdrawjs/core/src/fonts/libre-baskerville-latin-ext-500.woff2",
+    content_type = "font/woff2",
+  },
 }
 
 local random_source

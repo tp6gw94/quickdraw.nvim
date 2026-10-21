@@ -9,7 +9,8 @@ import {
 } from './palette.js'
 import {
   ptsBounds, rotWith, distToPolyline, pointInPolygon, pointInEllipse,
-  geoPolygon, ellipsePolygon, wobblePolyline, traceSmooth, segIntersectsBounds,
+  geoPolygon, ellipsePolygon, cloudPolygon, CLOUD_START, CLOUD_CURVES,
+  wobblePolyline, bowPolygon, traceSmooth, segIntersectsBounds,
   boundsIntersect, boundsContain,
 } from './geometry.js'
 import { strokeOutline } from './freehand.js'
@@ -94,7 +95,7 @@ export function toLocal(shape, px, py) {
 
 const outlineCache = new WeakMap() // draw props -> Path2D
 const geoPathCache = new WeakMap() // geo props+id key stored on props via WeakMap keyed by props (id captured at build)
-const layoutCache = new WeakMap() // text/note/geo-label props -> layout
+let layoutCache = new WeakMap() // text/note/geo-label props -> layout
 
 let measureCtx = null
 const measurer = () => {
@@ -122,6 +123,14 @@ export function lineBaseline(font, fontSize, lh) {
     baselineCache.set(key, b)
   }
   return b
+}
+
+// Text is measured once per props object, so a web font that arrives after
+// the first layout would leave every box sized for the fallback. The editor
+// calls this when fonts finish loading, then redraws.
+export function resetTextLayouts() {
+  layoutCache = new WeakMap()
+  baselineCache.clear()
 }
 
 // ---- text layout -----------------------------------------------------------
@@ -180,7 +189,7 @@ function geoLabelLayout(shape) {
   const key = p
   let hit = layoutCache.get(key)
   if (hit) return hit
-  const fontSize = FONT_SIZES[p.labelSize || 's']
+  const fontSize = FONT_SIZES[p.labelSize || 's'] * (p.labelScale || 1)
   const font = FONTS[p.font || 'draw']
   const lh = fontSize * 1.3
   const lines = wrapLines(p.label, font, fontSize, Math.max(24, p.w - LABEL_PAD * 2))
@@ -218,34 +227,51 @@ function strokeStyled(ctx, dash, w) {
   ctx.setLineDash(d || [])
 }
 
-// polygon path (wobbled for 'draw' dash), cached per props object
+// The outline a 'draw'-dash geo is stroked along, in local space: `smooth`
+// outlines (ellipse, cloud) are traced with midpoint quadratics, the rest
+// joined straight. The wobble is deliberately quiet — a calm hand, not a
+// shaky one. Exported so animation code can trace exactly what's drawn.
+export function geoOutline(shape) {
+  const p = shape.props
+  const w = p.w, h = p.h
+  if (p.geo === 'ellipse') {
+    return { smooth: true, pts: wobblePolyline(ellipsePolygon(w, h, 48), shape.id, { step: 34, amp: Math.min(0.9, (w + h) / 400 + 0.3) }) }
+  }
+  if (p.geo === 'cloud') {
+    return { smooth: true, pts: wobblePolyline(cloudPolygon(w, h), shape.id, { step: 30, amp: Math.min(0.8, (w + h) / 400 + 0.3) }) }
+  }
+  return { smooth: false, pts: bowPolygon(geoPolygon(p.geo, w, h), shape.id) }
+}
+
+// polygon path (hand-drawn for 'draw' dash), cached per props object
 function geoPath(shape) {
   const p = shape.props
   let path = geoPathCache.get(p)
   if (path) return path
   path = new Path2D()
-  if (p.geo === 'ellipse') {
-    if (p.dash === 'draw') {
-      const pts = wobblePolyline(ellipsePolygon(p.w, p.h, 40), shape.id, { step: 18, amp: Math.min(2, p.w / 40 + 0.6) })
-      traceSmooth(path, pts, true)
-      path.closePath()
-    } else {
-      path.ellipse(p.w / 2, p.h / 2, Math.max(0.5, p.w / 2), Math.max(0.5, p.h / 2), 0, 0, Math.PI * 2)
-    }
-  } else {
-    const poly = geoPolygon(p.geo, p.w, p.h)
-    if (p.dash === 'draw') {
-      const pts = wobblePolyline(poly, shape.id, { step: 22, amp: Math.min(2.2, (p.w + p.h) / 160 + 0.6) })
+  if (p.dash === 'draw') {
+    const { smooth, pts } = geoOutline(shape)
+    if (smooth) traceSmooth(path, pts, true)
+    else {
       const n = pts.length / 2
       path.moveTo(pts[0], pts[1])
       for (let i = 1; i < n; i++) path.lineTo(pts[i * 2], pts[i * 2 + 1])
-      path.closePath()
-    } else {
-      const n = poly.length / 2
-      path.moveTo(poly[0], poly[1])
-      for (let i = 1; i < n; i++) path.lineTo(poly[i * 2], poly[i * 2 + 1])
-      path.closePath()
     }
+    path.closePath()
+  } else if (p.geo === 'ellipse') {
+    path.ellipse(p.w / 2, p.h / 2, Math.max(0.5, p.w / 2), Math.max(0.5, p.h / 2), 0, 0, Math.PI * 2)
+  } else if (p.geo === 'cloud') {
+    path.moveTo(CLOUD_START[0] * p.w, CLOUD_START[1] * p.h)
+    for (const [c1x, c1y, c2x, c2y, ex, ey] of CLOUD_CURVES) {
+      path.bezierCurveTo(c1x * p.w, c1y * p.h, c2x * p.w, c2y * p.h, ex * p.w, ey * p.h)
+    }
+    path.closePath()
+  } else {
+    const poly = geoPolygon(p.geo, p.w, p.h)
+    const n = poly.length / 2
+    path.moveTo(poly[0], poly[1])
+    for (let i = 1; i < n; i++) path.lineTo(poly[i * 2], poly[i * 2 + 1])
+    path.closePath()
   }
   geoPathCache.set(p, path)
   return path
