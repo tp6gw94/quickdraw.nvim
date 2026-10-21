@@ -43,7 +43,6 @@ export class Editor {
     this.geoKind = geoKind || 'rectangle'
     this.tool = 'draw'
     this.toolLocked = false
-    this._toolIntent = 0
     this.selection = new Set()
     this.session = null
     this.editing = null // { id, textarea, field: 'text' | 'label' }
@@ -89,7 +88,7 @@ export class Editor {
     this._onFonts = () => {
       if (this._destroyed) return
       resetTextLayouts()
-      this.store.transact(() => {}, 'remote')
+      this.store.settle()
       this.requestRender()
     }
     if (typeof document !== 'undefined' && document.fonts) {
@@ -261,11 +260,7 @@ export class Editor {
   // ---- tools / styles ------------------------------------------------------
   setTool(tool) {
     if (!TOOLS.includes(tool)) return
-    this._toolIntent++
     this._commitText()
-    this._activateTool(tool)
-  }
-  _activateTool(tool) {
     this.tool = tool
     if (tool !== 'select') this.setSelection([])
     this._syncCursor()
@@ -278,17 +273,10 @@ export class Editor {
     this.toolLocked = locked
     this.emit('toollock')
   }
-  _completeCreation(creation, id, phase = 'done') {
-    if (creation && creation.intent !== this._toolIntent) return
-    const locked = !!creation && this.toolLocked
-    if (phase === 'editing') {
-      this._activateTool('select')
-      this.setSelection(locked ? [] : [id])
-    } else if (locked) this._activateTool(creation.tool)
-    else {
-      this._activateTool('select')
-      this.setSelection(id ? [id] : [])
-    }
+  _finishCreation(id) {
+    if (this.toolLocked && this.tool !== 'select') return
+    this.setTool('select')
+    this.setSelection([id])
   }
   setGeoKind(kind) {
     if (GEO_IDS.includes(kind)) { this.geoKind = kind; this.emit('tool') }
@@ -615,7 +603,7 @@ export class Editor {
       case 'note': {
         const hit = this.hitTest(p.x, p.y)
         const edit = hit && (hit.type === 'text' || hit.type === 'note') ? hit.id : null
-        this.session = { type: 'placing', page: p, edit, creation: { tool: this.tool, intent: this._toolIntent } }
+        this.session = { type: 'placing', tool: this.tool, page: p, edit }
         return
       }
       case 'select': return this._beginSelect(e, s, p)
@@ -733,7 +721,7 @@ export class Editor {
       case 'drawing': return this._endDraw()
       case 'erasing': return this._endErase()
       case 'lasering': return this._endLaser()
-      case 'lineish': return this._endLineish(e)
+      case 'lineish': return this._endLineish()
       case 'geo-create': return this._endGeo()
       case 'marquee':
         this.session = null
@@ -743,13 +731,12 @@ export class Editor {
       case 'placing': {
         this.session = null
         if (ss.edit && this.store.has(ss.edit)) {
-          this.setTool('select')
-          this.setSelection([ss.edit])
+          this._finishCreation(ss.edit)
           this._startTextEdit(ss.edit, 'text')
-        } else ss.creation.tool === 'note' ? this._placeNote(ss.page, ss.creation) : this._placeText(ss.page, ss.creation)
+        } else ss.tool === 'note' ? this._placeNote(ss.page) : this._placeText(ss.page)
         return
       }
-      case 'handle': return this._endHandle(e)
+      case 'handle': return this._endHandle()
       case 'resizing':
       case 'rotating':
         this.store.endBatch()
@@ -937,7 +924,7 @@ export class Editor {
         ...(type === 'arrow' ? { startBinding: bindingAt(this.shapesSorted(), p), endBinding: null } : {}),
       },
     })
-    this.session = { type: 'lineish', id, creation: { tool: type, intent: this._toolIntent } }
+    this.session = { type: 'lineish', id }
   }
   _dragLineish(p, e) {
     const ss = this.session
@@ -948,20 +935,16 @@ export class Editor {
     if (s.type === 'arrow') ss.candidate = bindingAt(this.shapesSorted(), end)
     this.store.put(withLineGeometry(s, { ...g, end }))
   }
-  _endLineish(e) {
+  _endLineish() {
     const ss = this.session
     const s = this.store.get(ss.id)
     this.session = null
     if (s) {
-      const g = lineGeometry(s)
-      const sp = this._evPoint(e)
-      const end = snappedEnd(g.start, this.screenToPage(sp.x, sp.y), e.shiftKey)
-      if (Math.hypot(end.x - g.start.x, end.y - g.start.y) < 2 / this.camera.z) this.store.remove([s.id])
-      else if (s.type === 'arrow') this.store.put(withEndpoint(s, 'end', end, bindingAt(this.shapesSorted(), end)))
-      else this.store.put(withLineGeometry(s, { ...g, end }))
+      if (Math.hypot(s.props.dx, s.props.dy) < 2 / this.camera.z) this.store.remove([s.id])
+      else if (s.type === 'arrow') this.store.update(s.id, { props: { endBinding: ss.candidate || null } })
     }
     this.store.endBatch()
-    if (s) this._completeCreation(ss.creation, s.id)
+    if (s) this._finishCreation(s.id)
   }
 
   // ---- geo -----------------------------------------------------------------
@@ -976,7 +959,7 @@ export class Editor {
         dash: this.styles.dash, fill: this.styles.fill, font: this.styles.font,
       },
     })
-    this.session = { type: 'geo-create', id, origin: p, dragged: false, creation: { tool: 'geo', intent: this._toolIntent } }
+    this.session = { type: 'geo-create', id, origin: p, dragged: false }
   }
   _dragGeo(p, e) {
     const ss = this.session
@@ -1005,11 +988,11 @@ export class Editor {
       this.store.update(s.id, { x: s.x - 80, y: s.y - 80, props: { w: 160, h: 160 } })
     }
     this.store.endBatch()
-    if (s) this._completeCreation(ss.creation, s.id)
+    if (s) this._finishCreation(s.id)
   }
 
   // ---- text / note ---------------------------------------------------------
-  _placeText(p, creation = null) {
+  _placeText(p) {
     const id = newId()
     this.store.beginBatch()
     this.store.put({
@@ -1017,10 +1000,10 @@ export class Editor {
       z: this.store.maxZ() + 1,
       props: { text: '', color: this.styles.color, size: this.styles.size, font: this.styles.font, autosize: true, scale: 1 },
     })
-    this._completeCreation(creation, id, 'editing')
-    this._startTextEdit(id, 'text', { fresh: true, creation })
+    this._finishCreation(id)
+    this._startTextEdit(id, 'text', { fresh: true })
   }
-  _placeNote(p, creation = null) {
+  _placeNote(p) {
     const id = newId()
     this.store.beginBatch()
     this.store.put({
@@ -1028,13 +1011,13 @@ export class Editor {
       z: this.store.maxZ() + 1,
       props: { text: '', color: this.styles.color === DEFAULT_STYLES.color ? 'yellow' : this.styles.color, size: 'm', font: this.styles.font, scale: 1 },
     })
-    this._completeCreation(creation, id, 'editing')
-    this._startTextEdit(id, 'text', { fresh: true, creation })
+    this._finishCreation(id)
+    this._startTextEdit(id, 'text', { fresh: true })
   }
 
   // The text surface: a real textarea floated over the canvas, styled to
   // match the render, so editing feels native (IME, selection, caret).
-  _startTextEdit(id, field, { fresh = false, creation = null } = {}) {
+  _startTextEdit(id, field, { fresh = false } = {}) {
     this._commitText()
     const shape = this.store.get(id)
     if (!shape) return
@@ -1044,7 +1027,7 @@ export class Editor {
     ta.value = field === 'label' ? shape.props.label || '' : shape.props.text || ''
     ta.spellcheck = false
     this.container.appendChild(ta)
-    this.editing = { id, field, textarea: ta, fresh, creation }
+    this.editing = { id, field, textarea: ta, fresh }
     const sync = () => {
       const patch = field === 'label' ? { label: ta.value } : { text: ta.value }
       this.store.update(id, { props: patch })
@@ -1131,7 +1114,6 @@ export class Editor {
       }
     }
     this.store.endBatch()
-    if (ed.creation) this._completeCreation(ed.creation, this.store.has(ed.id) ? ed.id : null)
     this.emit('edit')
     this.requestRender()
   }
@@ -1201,9 +1183,11 @@ export class Editor {
     const keepIfMoving = (targetId) => (moving.has(targetId) ? targetId : null)
     this.store.transact(() => {
       for (const [id, orig] of originals) {
-        if (!this.store.has(id)) continue
-        const moved = { ...orig, x: orig.x + dx, y: orig.y + dy }
-        this.store.put(mapBindingTargets(moved, keepIfMoving))
+        const cur = this.store.get(id)
+        if (!cur) continue
+        const kept = mapBindingTargets(cur, keepIfMoving)
+        if (kept !== cur) this.store.put(kept)
+        this.store.update(id, { x: orig.x + dx, y: orig.y + dy })
       }
     })
   }
@@ -1286,18 +1270,10 @@ export class Editor {
       this.store.put(withEndpoint(s, ss.which, pt, null))
     } else this.store.put(withLineGeometry(s, { ...g, [ss.which]: pt }))
   }
-  _endHandle(e) {
+  _endHandle() {
     const ss = this.session
     const s = this.store.get(ss.id)
-    if (s && ss.moved) {
-      const g = lineGeometry(s)
-      const sp = this._evPoint(e)
-      const p = this.screenToPage(sp.x, sp.y)
-      const pt = ss.which === 'end' ? snappedEnd(g.start, p, e.shiftKey) : p
-      this.store.put(s.type === 'arrow'
-        ? withEndpoint(s, ss.which, pt, bindingAt(this.shapesSorted(), pt))
-        : withLineGeometry(s, { ...g, [ss.which]: pt }))
-    }
+    if (ss.moved && s && s.type === 'arrow') this.store.update(s.id, { props: { [ss.which + 'Binding']: ss.candidate || null } })
     this.store.endBatch()
     this.session = null
     this._syncCursor()
