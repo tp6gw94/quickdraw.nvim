@@ -1943,6 +1943,11 @@ describe("quickdraw session HTTP foundation", function()
         marker = "export class Editor",
       },
       {
+        path = "/vendor/@quickdrawjs/core/src/bindings.js",
+        content_type = "text/javascript; charset=utf-8",
+        marker = "export function settleBindings",
+      },
+      {
         path = "/vendor/@quickdrawjs/core/src/freehand.js",
         content_type = "text/javascript; charset=utf-8",
         marker = "export function strokeOutline",

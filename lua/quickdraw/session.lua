@@ -32,6 +32,11 @@ local EDITOR_ASSETS = {
     content_type = "text/javascript; charset=utf-8",
   },
   {
+    route = "/vendor/@quickdrawjs/core/src/bindings.js",
+    file = "web/quickdraw/vendor/@quickdrawjs/core/src/bindings.js",
+    content_type = "text/javascript; charset=utf-8",
+  },
+  {
     route = "/vendor/@quickdrawjs/core/src/freehand.js",
     file = "web/quickdraw/vendor/@quickdrawjs/core/src/freehand.js",
     content_type = "text/javascript; charset=utf-8",
