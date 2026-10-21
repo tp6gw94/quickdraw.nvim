@@ -103,8 +103,10 @@ export class Store {
   transact(fn, source = 'user') {
     if (this._tx) { fn(); return }
     this._tx = { diff: emptyDiff(), source }
-    try { fn() } finally {
+    try {
+      fn()
       for (const rec of settleBindings(this.records)) this.put(rec, source)
+    } finally {
       const { diff } = this._tx
       this._tx = null
       if (!isDiffEmpty(diff)) {
@@ -120,6 +122,10 @@ export class Store {
         if (source === 'user') this._notifyHistory()
       }
     }
+  }
+
+  settle(source = 'remote') {
+    this.transact(() => {}, source)
   }
 
   put(rec, source = 'user') {

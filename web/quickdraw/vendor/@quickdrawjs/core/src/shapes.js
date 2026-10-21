@@ -580,8 +580,10 @@ export function containsShape(shape, pt) {
   const l = toLocal(shape, pt.x, pt.y)
   const p = shape.props
   if (shape.type === 'geo') {
-    if (p.geo === 'ellipse') return pointInEllipse(l.x, l.y, p.w / 2, p.h / 2, p.w / 2, p.h / 2)
-    return pointInPolygon(l.x, l.y, geoPolygon(p.geo, p.w, p.h))
+    const tol = SIZES[p.size]
+    if (p.geo === 'ellipse') return pointInEllipse(l.x, l.y, p.w / 2, p.h / 2, p.w / 2, p.h / 2) || nearEllipseEdge(l, p, tol)
+    const poly = geoPolygon(p.geo, p.w, p.h)
+    return pointInPolygon(l.x, l.y, poly) || distToPolyline(l.x, l.y, poly, 2, true) <= tol
   }
   return boundsContain(localBounds(shape), l.x, l.y)
 }

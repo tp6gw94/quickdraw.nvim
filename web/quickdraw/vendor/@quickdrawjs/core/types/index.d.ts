@@ -179,6 +179,8 @@ export class Store {
   listenHistory(fn: () => void): () => void
 
   transact(fn: () => void, source?: DiffSource): void
+  /** Re-resolve arrow bindings without any direct change (e.g. after fonts reflow text). */
+  settle(source?: DiffSource): void
   put(rec: BoardRecord, source?: DiffSource): void
   update(id: string, patch: Partial<BoardRecord> & { props?: Record<string, any> }, source?: DiffSource): void
   remove(ids: string[], source?: DiffSource): void

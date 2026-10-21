@@ -22,6 +22,7 @@ export function settleBindings(records) {
   for (const rec of records.values()) {
     if (rec.type !== 'arrow') continue
     const p = rec.props
+    if (p.startBinding == null && p.endBinding == null) continue
     const geo = lineGeometry(rec)
     const pts = { start: geo.start, end: geo.end }
     const patch = {}

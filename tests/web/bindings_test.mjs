@@ -133,6 +133,8 @@ test("bindingAt binds inside real shape bodies only and ignores shapes above the
   const shapes = [hollow, tilted, above]
   assert.deepEqual(bindingAt(shapes, { x: 50, y: 50 }), { targetId: "hollow", anchor: { u: 0.5, v: 0.5 } })
   assert.deepEqual(bindingAt(shapes, { x: 25, y: 75 }), { targetId: "hollow", anchor: { u: 0.25, v: 0.75 } })
+  assert.deepEqual(bindingAt(shapes, { x: 100, y: 50 }), { targetId: "hollow", anchor: { u: 1, v: 0.5 } })
+  assert.deepEqual(bindingAt(shapes, { x: 50, y: 100 }), { targetId: "hollow", anchor: { u: 0.5, v: 1 } })
   assert.equal(bindingAt(shapes, { x: 201, y: 1 }), null)
   assert.deepEqual(bindingAt(shapes, { x: 250, y: 50 }), { targetId: "tilted", anchor: { u: 0.5, v: 0.5 } })
   assert.equal(bindingAt(shapes, { x: 150, y: 150 }), null)
