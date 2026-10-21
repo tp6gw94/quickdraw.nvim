@@ -9,4 +9,4 @@ test:
 		--noplugin \
 		-u ${TESTS_INIT} \
 		-c "PlenaryBustedDirectory ${TESTS_DIR} { minimal_init = '${TESTS_INIT}' }"
-	@node --test tests/web/save_status_test.mjs tests/web/bindings_test.mjs tests/web/editor_test.mjs
+	@node --test tests/web/save_status_test.mjs tests/web/bindings_test.mjs tests/web/editor_test.mjs tests/web/heads_test.mjs
