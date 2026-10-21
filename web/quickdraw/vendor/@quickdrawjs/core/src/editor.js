@@ -941,9 +941,10 @@ export class Editor {
     const ss = this.session
     const s = this.store.get(ss.id)
     this.session = null
+    const short = (r) => Math.hypot(r.props.dx, r.props.dy) < 2 / this.camera.z
     if (s) {
-      if (Math.hypot(s.props.dx, s.props.dy) < 2 / this.camera.z) this.store.remove([s.id])
-      else if (s.type === 'arrow' && (ss.startBinding || ss.candidate)) this.store.update(s.id, { props: { startBinding: ss.startBinding || null, endBinding: ss.candidate || null } })
+      if (!short(s) && s.type === 'arrow' && (ss.startBinding || ss.candidate)) this.store.update(s.id, { props: { startBinding: ss.startBinding || null, endBinding: ss.candidate || null } })
+      if (short(this.store.get(s.id))) this.store.remove([s.id])
     }
     this.store.endBatch()
     if (s) this._finishCreation(s.id)
