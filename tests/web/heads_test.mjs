@@ -4,6 +4,8 @@ import test from "node:test"
 import { elem } from "./dom_stub.mjs"
 import { Editor } from "../../web/quickdraw/vendor/@quickdrawjs/core/src/editor.js"
 import { arrowHeads } from "../../web/quickdraw/vendor/@quickdrawjs/core/src/shapes.js"
+import { HEAD_IDS as PALETTE_HEAD_IDS, HEAD_DEFAULTS as PALETTE_HEAD_DEFAULTS } from "../../web/quickdraw/vendor/@quickdrawjs/core/src/palette.js"
+import { HEAD_IDS, HEAD_DEFAULTS } from "../../web/quickdraw/vendor/@quickdrawjs/core/src/index.js"
 
 const close = (a, b, msg) => assert.ok(Math.abs(a - b) < 1e-9, `${msg}: ${a} vs ${b}`)
 const closePt = (h, x, y, msg) => {
@@ -77,6 +79,33 @@ test("currentStyles reports a mixed headEnd as null and a shared one as its valu
   assert.equal(ed.currentStyles().headEnd, null)
   ed.setSelection(["A"])
   assert.equal(ed.currentStyles().headEnd, "dot")
+})
+
+test("currentStyles reports a legacy arrow's head defaults, not the pen's", () => {
+  const { ed } = board()
+  ed.setStyle("headStart", "triangle")
+  ed.setStyle("headEnd", "dot")
+  ed.store.put(lineish("A", "arrow"))
+  ed.setSelection(["A"])
+  const cur = ed.currentStyles()
+  assert.equal(cur.headStart, "none")
+  assert.equal(cur.headEnd, "arrow")
+})
+
+test("currentStyles reports a legacy arrow beside an explicit one as mixed heads", () => {
+  const { ed } = board()
+  ed.store.put(lineish("A", "arrow"))
+  ed.store.put(lineish("B", "arrow", { headStart: "triangle", headEnd: "dot" }))
+  ed.setSelection(["A", "B"])
+  const cur = ed.currentStyles()
+  assert.equal(cur.headStart, null)
+  assert.equal(cur.headEnd, null)
+})
+
+test("the package face re-exports the palette's head ids and defaults", () => {
+  assert.equal(HEAD_IDS, PALETTE_HEAD_IDS)
+  assert.equal(HEAD_DEFAULTS, PALETTE_HEAD_DEFAULTS)
+  assert.deepEqual(HEAD_DEFAULTS, { headStart: "none", headEnd: "arrow" })
 })
 
 test("a new arrow is drawn with the current heads and a new line with none", () => {
