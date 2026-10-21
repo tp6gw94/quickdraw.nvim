@@ -5,6 +5,8 @@
 // replaces the object, so [from, to] pairs stay true.
 // Dependency-free ESM: runs in any modern browser as-is, no build step.
 
+import { settleBindings } from './bindings.js'
+
 let seq = 0
 export const newId = (p = 'shape') =>
   p + ':' + Date.now().toString(36) + (seq++ % 1296).toString(36).padStart(2, '0') + Math.random().toString(36).slice(2, 6)
@@ -102,6 +104,7 @@ export class Store {
     if (this._tx) { fn(); return }
     this._tx = { diff: emptyDiff(), source }
     try { fn() } finally {
+      for (const rec of settleBindings(this.records)) this.put(rec, source)
       const { diff } = this._tx
       this._tx = null
       if (!isDiffEmpty(diff)) {

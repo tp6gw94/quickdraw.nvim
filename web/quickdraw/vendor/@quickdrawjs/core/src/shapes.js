@@ -91,6 +91,44 @@ export function toLocal(shape, px, py) {
   return { x: px - shape.x, y: py - shape.y }
 }
 
+export function toPage(shape, lx, ly) {
+  if (shape.rot) {
+    const lb = localBounds(shape)
+    const cx = shape.x + lb.x + lb.w / 2
+    const cy = shape.y + lb.y + lb.h / 2
+    return rotWith(shape.x + lx, shape.y + ly, cx, cy, shape.rot)
+  }
+  return { x: shape.x + lx, y: shape.y + ly }
+}
+
+const bendMidpoint = (p) => {
+  if (!p.bend) return { x: p.dx / 2, y: p.dy / 2 }
+  const mid = sampleLinePts(p, p.bend)
+  const mi = Math.floor(mid.length / 4) * 2
+  return { x: mid[mi], y: mid[mi + 1] }
+}
+
+export function lineGeometry(shape) {
+  const p = shape.props
+  const bm = bendMidpoint(p)
+  return {
+    start: toPage(shape, 0, 0),
+    end: toPage(shape, p.dx, p.dy),
+    bendPoint: toPage(shape, bm.x, bm.y),
+    bend: p.bend || 0,
+  }
+}
+
+export function withLineGeometry(shape, { start, end, bend }) {
+  const d = rotWith(end.x - start.x, end.y - start.y, 0, 0, -(shape.rot || 0))
+  return {
+    ...shape,
+    x: (start.x + end.x) / 2 - d.x / 2,
+    y: (start.y + end.y) / 2 - d.y / 2,
+    props: { ...shape.props, dx: d.x, dy: d.y, bend },
+  }
+}
+
 // ---- caches ----------------------------------------------------------------
 
 const outlineCache = new WeakMap() // draw props -> Path2D
@@ -536,6 +574,16 @@ export function hitShape(shape, px, py, tol, store) {
     }
   }
   return false
+}
+
+export function containsShape(shape, pt) {
+  const l = toLocal(shape, pt.x, pt.y)
+  const p = shape.props
+  if (shape.type === 'geo') {
+    if (p.geo === 'ellipse') return pointInEllipse(l.x, l.y, p.w / 2, p.h / 2, p.w / 2, p.h / 2)
+    return pointInPolygon(l.x, l.y, geoPolygon(p.geo, p.w, p.h))
+  }
+  return boundsContain(localBounds(shape), l.x, l.y)
 }
 
 const nearEllipseEdge = (l, p, tol) => {
