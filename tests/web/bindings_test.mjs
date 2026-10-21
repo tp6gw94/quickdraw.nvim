@@ -138,17 +138,17 @@ test("bindingAt binds inside real shape bodies only and ignores shapes above the
   assert.equal(bindingAt(shapes, { x: 150, y: 150 }), null)
 })
 
-test("mapBindingTargets keeps in-set targets and drops the rest", () => {
+test("mapBindingTargets retargets through the remap and detaches the rest", () => {
   const a = arrow("arrow", 0, 0, 10, 10, {
     startBinding: { targetId: "box", anchor: { u: 0, v: 0 } },
     endBinding: { targetId: "img", anchor: { u: 1, v: 1 } },
   })
-  const mapped = mapBindingTargets(a, new Map([["box", "box2"]]))
+  const mapped = mapBindingTargets(a, (id) => (id === "box" ? "box2" : null))
   assert.deepEqual(mapped.props.startBinding, { targetId: "box2", anchor: { u: 0, v: 0 } })
   assert.equal(mapped.props.endBinding, null)
   assert.equal(mapped.props.dx, 10)
-  const identity = mapBindingTargets(a, new Map([["box", "box"], ["img", "img"]]))
+  const identity = mapBindingTargets(a, (id) => id)
   assert.equal(identity, a)
   const plain = box("box", 0, 0, 10, 10)
-  assert.equal(mapBindingTargets(plain, new Map()), plain)
+  assert.equal(mapBindingTargets(plain, () => null), plain)
 })

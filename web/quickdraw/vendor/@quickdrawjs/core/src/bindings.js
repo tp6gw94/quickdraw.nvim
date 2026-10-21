@@ -24,21 +24,21 @@ export function settleBindings(records) {
     const p = rec.props
     const geo = lineGeometry(rec)
     const pts = { start: geo.start, end: geo.end }
-    const detached = {}
+    const patch = {}
     let moved = false
     for (const end of ENDS) {
       const key = end + 'Binding'
       const b = p[key]
       if (b == null) continue
       const target = validBinding(b) ? records.get(b.targetId) : null
-      if (!target || !TARGET_TYPES.has(target.type)) { detached[key] = null; continue }
+      if (!target || !TARGET_TYPES.has(target.type)) { patch[key] = null; continue }
       const want = anchorPoint(target, b.anchor)
       if (near(want.x, pts[end].x) && near(want.y, pts[end].y)) continue
       pts[end] = want
       moved = true
     }
-    if (!moved && !Object.keys(detached).length) continue
-    const next = { ...rec, props: { ...p, ...detached } }
+    if (!moved && !Object.keys(patch).length) continue
+    const next = { ...rec, props: { ...p, ...patch } }
     out.push(moved ? withLineGeometry(next, { start: pts.start, end: pts.end, bend: geo.bend }) : next)
   }
   return out
@@ -50,7 +50,9 @@ export function bindingAt(shapesBackToFront, pt) {
     if (!TARGET_TYPES.has(s.type) || !containsShape(s, pt)) continue
     const lb = localBounds(s)
     const l = toLocal(s, pt.x, pt.y)
-    return { targetId: s.id, anchor: { u: clamp((l.x - lb.x) / lb.w, 0, 1), v: clamp((l.y - lb.y) / lb.h, 0, 1) } }
+    const u = clamp((l.x - lb.x) / lb.w, 0, 1)
+    const v = clamp((l.y - lb.y) / lb.h, 0, 1)
+    return { targetId: s.id, anchor: { u, v } }
   }
   return null
 }
@@ -61,16 +63,16 @@ export function withEndpoint(arrow, end, pt, binding) {
   return { ...next, props: { ...next.props, [end + 'Binding']: binding } }
 }
 
-export function mapBindingTargets(shape, idMap) {
+export function mapBindingTargets(shape, remap) {
   if (shape.type !== 'arrow') return shape
   let props = shape.props
   for (const end of ENDS) {
     const key = end + 'Binding'
     const b = props[key]
     if (!b) continue
-    const mapped = idMap.get(b.targetId)
-    if (mapped === b.targetId) continue
-    props = { ...props, [key]: mapped ? { ...b, targetId: mapped } : null }
+    const targetId = remap(b.targetId)
+    if (targetId === b.targetId) continue
+    props = { ...props, [key]: targetId ? { ...b, targetId } : null }
   }
   return props === shape.props ? shape : { ...shape, props }
 }

@@ -459,13 +459,14 @@ export class Editor {
   _insertShapes(shapes, assets, offset) {
     const idMap = new Map(shapes.map((s) => [s.id, newId()]))
     const assetMap = new Map(Object.values(assets).map((a) => [a.id, newId('asset')]))
+    const retarget = (targetId) => idMap.get(targetId) || null
     let z = this.store.maxZ()
     this.store.transact(() => {
       for (const a of Object.values(assets)) this.store.put({ ...a, id: assetMap.get(a.id) })
       for (const s of shapes) {
         const copy = { ...s, id: idMap.get(s.id), x: s.x + offset, y: s.y + offset, z: ++z }
         if (s.props.assetId) copy.props = { ...s.props, assetId: assetMap.get(s.props.assetId) || s.props.assetId }
-        this.store.put(mapBindingTargets(copy, idMap))
+        this.store.put(mapBindingTargets(copy, retarget))
       }
     })
     return [...idMap.values()]
@@ -1196,10 +1197,13 @@ export class Editor {
     this._translateShapes(ss.orig, dx, dy)
   }
   _translateShapes(originals, dx, dy) {
-    const ids = new Map([...originals.keys()].map((id) => [id, id]))
+    const moving = new Set(originals.keys())
+    const keepIfMoving = (targetId) => (moving.has(targetId) ? targetId : null)
     this.store.transact(() => {
       for (const [id, orig] of originals) {
-        if (this.store.has(id)) this.store.put(mapBindingTargets({ ...orig, x: orig.x + dx, y: orig.y + dy }, ids))
+        if (!this.store.has(id)) continue
+        const moved = { ...orig, x: orig.x + dx, y: orig.y + dy }
+        this.store.put(mapBindingTargets(moved, keepIfMoving))
       }
     })
   }
@@ -1270,7 +1274,8 @@ export class Editor {
       const cx = g.end.x - g.start.x, cy = g.end.y - g.start.y
       const len = Math.hypot(cx, cy) || 1
       const nx = -cy / len, ny = cx / len
-      const bend = (p.x - (g.start.x + g.end.x) / 2) * nx + (p.y - (g.start.y + g.end.y) / 2) * ny
+      const mx = (g.start.x + g.end.x) / 2, my = (g.start.y + g.end.y) / 2
+      const bend = (p.x - mx) * nx + (p.y - my) * ny
       this.store.update(s.id, { props: { bend: Math.abs(bend) < 4 / this.camera.z ? 0 : bend } })
       return
     }
@@ -1869,12 +1874,16 @@ export class Editor {
       }
     }
 
-    const target = this.session?.candidate && this.store.get(this.session.candidate.targetId)
-    if (target) {
-      const lb = localBounds(target)
+    const candidate = this.session?.candidate && this.store.get(this.session.candidate.targetId)
+    if (candidate) {
+      const lb = localBounds(candidate)
+      const screenCorner = ([lx, ly]) => {
+        const pt = toPage(candidate, lx, ly)
+        return this.pageToScreen(pt.x, pt.y)
+      }
       const corners = [
         [lb.x, lb.y], [lb.x + lb.w, lb.y], [lb.x + lb.w, lb.y + lb.h], [lb.x, lb.y + lb.h],
-      ].map(([lx, ly]) => { const r = toPage(target, lx, ly); return this.pageToScreen(r.x, r.y) })
+      ].map(screenCorner)
       ctx.beginPath()
       ctx.moveTo(corners[0].x, corners[0].y)
       for (let i = 1; i < 4; i++) ctx.lineTo(corners[i].x, corners[i].y)
