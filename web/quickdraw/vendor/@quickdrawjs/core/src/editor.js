@@ -6,9 +6,10 @@
 import { Store, newId } from './store.js'
 import { themeOf, SIZES, FONT_SIZES, FONTS, GEO_IDS, COLOR_IDS, GRID_IDS, GRID_STEP, GRID_BAND, GRID_MAJOR } from './palette.js'
 import {
-  localBounds, pageBounds, toLocal, drawShape, hitShape, marqueeHits,
-  scaleShape, textLayout, noteLayout, NOTE_W, sampleLinePts, resetTextLayouts,
+  localBounds, pageBounds, toLocal, toPage, drawShape, hitShape, marqueeHits,
+  scaleShape, textLayout, noteLayout, NOTE_W, resetTextLayouts, lineGeometry, withLineGeometry,
 } from './shapes.js'
+import { bindingAt, withEndpoint, mapBindingTargets } from './bindings.js'
 import { boundsUnion, boundsExpand, boundsContain, clamp, rotWith } from './geometry.js'
 
 const ZOOM_MIN = 0.05
@@ -22,13 +23,12 @@ const DEFAULT_STYLES = { color: 'blue', size: 'm', dash: 'draw', fill: 'none', f
 
 export const TOOLS = ['select', 'hand', 'draw', 'highlight', 'eraser', 'laser', 'arrow', 'line', 'geo', 'text', 'note']
 
-// local position of the bend handle: the curve's midpoint (chord midpoint
-// when straight — sampleLinePts collapses to the two endpoints at bend 0)
-const bendMidpoint = (pr) => {
-  if (!pr.bend) return { x: pr.dx / 2, y: pr.dy / 2 }
-  const mid = sampleLinePts(pr, pr.bend)
-  const mi = Math.floor(mid.length / 4) * 2
-  return { x: mid[mi], y: mid[mi + 1] }
+const snappedEnd = (start, p, shift) => {
+  if (!shift) return p
+  const dx = p.x - start.x, dy = p.y - start.y
+  const a = Math.round(Math.atan2(dy, dx) / (Math.PI / 12)) * (Math.PI / 12)
+  const len = Math.hypot(dx, dy)
+  return { x: start.x + Math.cos(a) * len, y: start.y + Math.sin(a) * len }
 }
 
 export class Editor {
@@ -87,6 +87,7 @@ export class Editor {
     this._onFonts = () => {
       if (this._destroyed) return
       resetTextLayouts()
+      this.store.transact(() => {}, 'remote')
       this.requestRender()
     }
     if (typeof document !== 'undefined' && document.fonts) {
@@ -428,18 +429,22 @@ export class Editor {
   }
   duplicateSelection(offset = 16) {
     if (!this.selection.size) return
-    const ids = []
+    const shapes = [...this.selection].map((id) => this.store.get(id)).filter((s) => s && s.typeName !== 'asset')
+    this.setSelection(this._insertShapes(shapes, {}, offset))
+  }
+  _insertShapes(shapes, assets, offset) {
+    const idMap = new Map(shapes.map((s) => [s.id, newId()]))
+    const assetMap = new Map(Object.values(assets).map((a) => [a.id, newId('asset')]))
     let z = this.store.maxZ()
     this.store.transact(() => {
-      for (const id of this.selection) {
-        const s = this.store.get(id)
-        if (!s || s.typeName === 'asset') continue
-        const copy = { ...s, id: newId(), x: s.x + offset, y: s.y + offset, z: ++z }
-        this.store.put(copy)
-        ids.push(copy.id)
+      for (const a of Object.values(assets)) this.store.put({ ...a, id: assetMap.get(a.id) })
+      for (const s of shapes) {
+        const copy = { ...s, id: idMap.get(s.id), x: s.x + offset, y: s.y + offset, z: ++z }
+        if (s.props.assetId) copy.props = { ...s.props, assetId: assetMap.get(s.props.assetId) || s.props.assetId }
+        this.store.put(mapBindingTargets(copy, idMap))
       }
     })
-    this.setSelection(ids)
+    return [...idMap.values()]
   }
   bringToFront() {
     let z = this.store.maxZ()
@@ -703,7 +708,7 @@ export class Editor {
       case 'drawing': return this._endDraw()
       case 'erasing': return this._endErase()
       case 'lasering': return this._endLaser()
-      case 'lineish': return this._endLineish()
+      case 'lineish': return this._endLineish(e)
       case 'geo-create': return this._endGeo()
       case 'marquee':
         this.session = null
@@ -719,9 +724,9 @@ export class Editor {
         } else ss.tool === 'note' ? this._placeNote(ss.page) : this._placeText(ss.page)
         return
       }
+      case 'handle': return this._endHandle(e)
       case 'resizing':
       case 'rotating':
-      case 'handle':
         this.store.endBatch()
         this.session = null
         this._syncCursor()
@@ -904,26 +909,31 @@ export class Editor {
         dx: 0.01, dy: 0.01, bend: 0,
         color: this.styles.color, size: this.styles.size,
         dash: this.styles.dash === 'draw' ? 'solid' : this.styles.dash,
+        ...(type === 'arrow' ? { startBinding: bindingAt(this.shapesSorted(), p), endBinding: null } : {}),
       },
     })
     this.session = { type: 'lineish', id }
   }
   _dragLineish(p, e) {
-    const s = this.store.get(this.session.id)
+    const ss = this.session
+    const s = this.store.get(ss.id)
     if (!s) return
-    let dx = p.x - s.x, dy = p.y - s.y
-    if (e.shiftKey) {
-      const a = Math.round(Math.atan2(dy, dx) / (Math.PI / 12)) * (Math.PI / 12)
-      const len = Math.hypot(dx, dy)
-      dx = Math.cos(a) * len
-      dy = Math.sin(a) * len
-    }
-    this.store.update(s.id, { props: { dx, dy } })
+    const g = lineGeometry(s)
+    const end = snappedEnd(g.start, p, e.shiftKey)
+    if (s.type === 'arrow') ss.candidate = bindingAt(this.shapesSorted(), end)
+    this.store.put(withLineGeometry(s, { ...g, end }))
   }
-  _endLineish() {
+  _endLineish(e) {
     const s = this.store.get(this.session.id)
     this.session = null
-    if (s && Math.hypot(s.props.dx, s.props.dy) < 2 / this.camera.z) this.store.remove([s.id])
+    if (s) {
+      const g = lineGeometry(s)
+      const sp = this._evPoint(e)
+      const end = snappedEnd(g.start, this.screenToPage(sp.x, sp.y), e.shiftKey)
+      if (Math.hypot(end.x - g.start.x, end.y - g.start.y) < 2 / this.camera.z) this.store.remove([s.id])
+      else if (s.type === 'arrow') this.store.put(withEndpoint(s, 'end', end, bindingAt(this.shapesSorted(), end)))
+      else this.store.put(withLineGeometry(s, { ...g, end }))
+    }
     this.store.endBatch()
     if (s) { this.setTool('select'); this.setSelection([s.id]) }
   }
@@ -1159,9 +1169,13 @@ export class Editor {
     let dx = p.x - ss.start.x
     let dy = p.y - ss.start.y
     if (e.shiftKey) Math.abs(dx) > Math.abs(dy) ? (dy = 0) : (dx = 0)
+    this._translateShapes(ss.orig, dx, dy)
+  }
+  _translateShapes(originals, dx, dy) {
+    const ids = new Map([...originals.keys()].map((id) => [id, id]))
     this.store.transact(() => {
-      for (const [id, orig] of ss.orig) {
-        if (this.store.has(id)) this.store.update(id, { x: orig.x + dx, y: orig.y + dy })
+      for (const [id, orig] of originals) {
+        if (this.store.has(id)) this.store.put(mapBindingTargets({ ...orig, x: orig.x + dx, y: orig.y + dy }, ids))
       }
     })
   }
@@ -1212,7 +1226,8 @@ export class Editor {
         const cx = orig.x + lb.x + lb.w / 2
         const cy = orig.y + lb.y + lb.h / 2
         const nc = rotWith(cx, cy, ss.center.x, ss.center.y, delta)
-        this.store.update(id, {
+        this.store.put({
+          ...orig,
           x: orig.x + nc.x - cx,
           y: orig.y + nc.y - cy,
           rot: ((orig.rot || 0) + delta) % (Math.PI * 2),
@@ -1225,26 +1240,39 @@ export class Editor {
     const ss = this.session
     const s = this.store.get(ss.id)
     if (!s) return
-    const pr = s.props
-    if (ss.which === 'start') {
-      const ex = s.x + pr.dx, ey = s.y + pr.dy
-      this.store.update(s.id, { x: p.x, y: p.y, props: { dx: ex - p.x, dy: ey - p.y } })
-    } else if (ss.which === 'end') {
-      let dx = p.x - s.x, dy = p.y - s.y
-      if (e.shiftKey) {
-        const a = Math.round(Math.atan2(dy, dx) / (Math.PI / 12)) * (Math.PI / 12)
-        const len = Math.hypot(dx, dy)
-        dx = Math.cos(a) * len
-        dy = Math.sin(a) * len
-      }
-      this.store.update(s.id, { props: { dx, dy } })
-    } else if (ss.which === 'bend') {
+    const g = lineGeometry(s)
+    if (ss.which === 'bend') {
       // signed distance of the pointer from the straight chord
-      const len = Math.hypot(pr.dx, pr.dy) || 1
-      const nx = -pr.dy / len, ny = pr.dx / len
-      const bend = (p.x - (s.x + pr.dx / 2)) * nx + (p.y - (s.y + pr.dy / 2)) * ny
+      const cx = g.end.x - g.start.x, cy = g.end.y - g.start.y
+      const len = Math.hypot(cx, cy) || 1
+      const nx = -cy / len, ny = cx / len
+      const bend = (p.x - (g.start.x + g.end.x) / 2) * nx + (p.y - (g.start.y + g.end.y) / 2) * ny
       this.store.update(s.id, { props: { bend: Math.abs(bend) < 4 / this.camera.z ? 0 : bend } })
+      return
     }
+    ss.moved = true
+    const pt = ss.which === 'end' ? snappedEnd(g.start, p, e.shiftKey) : p
+    if (s.type === 'arrow') {
+      ss.candidate = bindingAt(this.shapesSorted(), pt)
+      this.store.put(withEndpoint(s, ss.which, pt, null))
+    } else this.store.put(withLineGeometry(s, { ...g, [ss.which]: pt }))
+  }
+  _endHandle(e) {
+    const ss = this.session
+    const s = this.store.get(ss.id)
+    if (s && ss.moved) {
+      const g = lineGeometry(s)
+      const sp = this._evPoint(e)
+      const p = this.screenToPage(sp.x, sp.y)
+      const pt = ss.which === 'end' ? snappedEnd(g.start, p, e.shiftKey) : p
+      this.store.put(s.type === 'arrow'
+        ? withEndpoint(s, ss.which, pt, bindingAt(this.shapesSorted(), pt))
+        : withLineGeometry(s, { ...g, [ss.which]: pt }))
+    }
+    this.store.endBatch()
+    this.session = null
+    this._syncCursor()
+    this.requestRender()
   }
 
   // the pointer tells you what a press would do: resize arrows over handles,
@@ -1271,13 +1299,12 @@ export class Editor {
     const one = this.selection.size === 1 ? this.store.get([...this.selection][0]) : null
     // arrows and lines carry their own handles instead of a resize box
     if (one && (one.type === 'arrow' || one.type === 'line')) {
-      const pr = one.props
+      const g = lineGeometry(one)
       const pts = [
-        { which: 'start', x: one.x, y: one.y },
-        { which: 'end', x: one.x + pr.dx, y: one.y + pr.dy },
+        { which: 'start', ...g.start },
+        { which: 'end', ...g.end },
+        { which: 'bend', ...g.bendPoint },
       ]
-      const bm = bendMidpoint(pr)
-      pts.push({ which: 'bend', x: one.x + bm.x, y: one.y + bm.y })
       for (const h of pts) {
         const s = this.pageToScreen(h.x, h.y)
         if (Math.hypot(s.x - sx, s.y - sy) <= HANDLE + 3) return { kind: 'handle', which: h.which, id: one.id }
@@ -1378,12 +1405,7 @@ export class Editor {
       const dy = k === 'arrowup' ? -d : k === 'arrowdown' ? d : 0
       if (this.selection.size) {
         e.preventDefault()
-        this.store.transact(() => {
-          for (const id of this.selection) {
-            const s = this.store.get(id)
-            if (s) this.store.update(id, { x: s.x + dx, y: s.y + dy })
-          }
-        })
+        this._translateShapes(this._snapshotSelection(), dx, dy)
       }
       return
     }
@@ -1480,24 +1502,7 @@ export class Editor {
     } catch {}
   }
   _pasteShapes(data) {
-    let z = this.store.maxZ()
-    const ids = []
-    this.store.transact(() => {
-      const assetMap = {}
-      for (const a of Object.values(data.assets || {})) {
-        const nid = newId('asset')
-        assetMap[a.id] = nid
-        this.store.put({ ...a, id: nid })
-      }
-      for (const s of data.shapes) {
-        const nid = newId()
-        ids.push(nid)
-        this.store.put({
-          ...s, id: nid, x: s.x + 16, y: s.y + 16, z: ++z,
-          props: s.props.assetId ? { ...s.props, assetId: assetMap[s.props.assetId] || s.props.assetId } : s.props,
-        })
-      }
-    })
+    const ids = this._insertShapes(data.shapes, data.assets || {}, 16)
     if (this.tool !== 'select') this.setTool('select')
     this.setSelection(ids)
   }
@@ -1780,13 +1785,8 @@ export class Editor {
       ctx.fillStyle = t.handleFill
       ctx.lineWidth = 1.5
       if (one && (one.type === 'arrow' || one.type === 'line')) {
-        const pr = one.props
-        const hs = [
-          this.pageToScreen(one.x, one.y),
-          this.pageToScreen(one.x + pr.dx, one.y + pr.dy),
-        ]
-        const bm = bendMidpoint(pr)
-        hs.push(this.pageToScreen(one.x + bm.x, one.y + bm.y))
+        const g = lineGeometry(one)
+        const hs = [g.start, g.end, g.bendPoint].map((pt) => this.pageToScreen(pt.x, pt.y))
         for (const p2 of hs) {
           ctx.beginPath()
           ctx.arc(p2.x, p2.y, 5, 0, Math.PI * 2)
@@ -1842,6 +1842,23 @@ export class Editor {
           }
         }
       }
+    }
+
+    const target = this.session?.candidate && this.store.get(this.session.candidate.targetId)
+    if (target) {
+      const lb = localBounds(target)
+      const corners = [
+        [lb.x, lb.y], [lb.x + lb.w, lb.y], [lb.x + lb.w, lb.y + lb.h], [lb.x, lb.y + lb.h],
+      ].map(([lx, ly]) => { const r = toPage(target, lx, ly); return this.pageToScreen(r.x, r.y) })
+      ctx.beginPath()
+      ctx.moveTo(corners[0].x, corners[0].y)
+      for (let i = 1; i < 4; i++) ctx.lineTo(corners[i].x, corners[i].y)
+      ctx.closePath()
+      ctx.fillStyle = t.selectionFill
+      ctx.strokeStyle = t.selection
+      ctx.lineWidth = 1.5
+      ctx.fill()
+      ctx.stroke()
     }
 
     // marquee
