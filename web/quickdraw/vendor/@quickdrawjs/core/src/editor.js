@@ -777,7 +777,9 @@ export class Editor {
     } else if (ss.type === 'lineish' || ss.type === 'geo-create') {
       this.store.remove([ss.id])
       this.store.endBatch()
-    } else if (['translating', 'resizing', 'rotating', 'handle', 'erasing'].includes(ss.type)) {
+    } else if (ss.type === 'handle') {
+      this._settleHandle(ss)
+    } else if (['translating', 'resizing', 'rotating', 'erasing'].includes(ss.type)) {
       this.store.endBatch()
     }
     this.session = null
@@ -921,10 +923,10 @@ export class Editor {
         dx: 0.01, dy: 0.01, bend: 0,
         color: this.styles.color, size: this.styles.size,
         dash: this.styles.dash === 'draw' ? 'solid' : this.styles.dash,
-        ...(type === 'arrow' ? { startBinding: bindingAt(this.shapesSorted(), p), endBinding: null } : {}),
       },
     })
     this.session = { type: 'lineish', id }
+    if (type === 'arrow') this.session.startBinding = bindingAt(this.shapesSorted(), p)
   }
   _dragLineish(p, e) {
     const ss = this.session
@@ -941,7 +943,7 @@ export class Editor {
     this.session = null
     if (s) {
       if (Math.hypot(s.props.dx, s.props.dy) < 2 / this.camera.z) this.store.remove([s.id])
-      else if (s.type === 'arrow') this.store.update(s.id, { props: { endBinding: ss.candidate || null } })
+      else if (s.type === 'arrow' && (ss.startBinding || ss.candidate)) this.store.update(s.id, { props: { startBinding: ss.startBinding || null, endBinding: ss.candidate || null } })
     }
     this.store.endBatch()
     if (s) this._finishCreation(s.id)
@@ -1270,11 +1272,13 @@ export class Editor {
       this.store.put(withEndpoint(s, ss.which, pt, null))
     } else this.store.put(withLineGeometry(s, { ...g, [ss.which]: pt }))
   }
-  _endHandle() {
-    const ss = this.session
+  _settleHandle(ss) {
     const s = this.store.get(ss.id)
-    if (ss.moved && s && s.type === 'arrow') this.store.update(s.id, { props: { [ss.which + 'Binding']: ss.candidate || null } })
+    if (ss.moved && ss.candidate && s) this.store.update(s.id, { props: { [ss.which + 'Binding']: ss.candidate } })
     this.store.endBatch()
+  }
+  _endHandle() {
+    this._settleHandle(this.session)
     this.session = null
     this._syncCursor()
     this.requestRender()
