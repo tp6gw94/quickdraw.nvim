@@ -213,3 +213,126 @@ test("duplicating arrow and target remaps the binding to the copy", () => {
   closePt(lineGeometry(arrowCopy).end, 366, 66, "copy end")
   assert.equal(ed.store.get(a.id).props.endBinding.targetId, "B")
 })
+
+const geo = (id, kind, x, y, w, h, z = 1) => ({
+  id, typeName: "shape", type: "geo", x, y, rot: 0, z,
+  props: { geo: kind, w, h, color: "black", size: "m", dash: "solid", fill: "none" },
+})
+
+function emptyBoard(...shapes) {
+  const b = board()
+  b.ed.store.remove(["A", "B"])
+  b.ed.setTool("select")
+  for (const s of shapes) b.ed.store.put(s)
+  const dbl = (x, y) => b.ed.container.listeners.dblclick({
+    type: "dblclick", target: b.ed.container, button: 0, clientX: x, clientY: y,
+    shiftKey: false, altKey: false, preventDefault() {},
+  })
+  const type = (value) => {
+    const ta = b.ed.editing.textarea
+    ta.value = value
+    ta.listeners.input()
+    ta.listeners.blur()
+  }
+  const texts = () => b.ed.store.shapes().filter((s) => s.type === "text")
+  return { ...b, dbl, type, texts }
+}
+
+test("double-click inside an empty unfilled rectangle edits its own label", () => {
+  const { ed, dbl, type, texts } = emptyBoard(geo("R", "rectangle", 100, 100, 200, 100))
+  dbl(200, 150)
+  assert.equal(ed.editing.id, "R")
+  assert.equal(ed.editing.field, "label")
+  assert.deepEqual([...ed.selection], ["R"])
+  assert.equal(ed.editing.textarea.style.width, "184px")
+  assert.equal(ed.editing.textarea.style.height, "84px")
+  type("hello")
+  assert.equal(ed.store.get("R").props.label, "hello")
+  assert.equal(texts().length, 0)
+})
+
+test("double-click inside an empty unfilled ellipse edits its own label", () => {
+  const { ed, dbl, type, texts } = emptyBoard(geo("E", "ellipse", 100, 100, 200, 120))
+  dbl(200, 160)
+  assert.equal(ed.editing.id, "E")
+  assert.equal(ed.editing.field, "label")
+  type("round")
+  assert.equal(ed.store.get("E").props.label, "round")
+  assert.equal(texts().length, 0)
+})
+
+test("a label added by double-click moves with its rectangle", () => {
+  const { ed, dbl, type, drag, texts } = emptyBoard(geo("R", "rectangle", 100, 100, 200, 100))
+  dbl(200, 150)
+  type("carried")
+  drag(150, 100, 200, 70)
+  const moved = ed.store.get("R")
+  assert.equal(moved.x, 150)
+  assert.equal(moved.y, 70)
+  assert.equal(moved.props.label, "carried")
+  assert.equal(texts().length, 0)
+})
+
+test("double-click inside a triangle edits its label while its bounding-box corner starts standalone text", () => {
+  const { ed, dbl, type, texts } = emptyBoard(geo("T", "triangle", 100, 100, 200, 200))
+  dbl(200, 250)
+  assert.equal(ed.editing.id, "T")
+  assert.equal(ed.editing.field, "label")
+  type("tri")
+  assert.equal(ed.store.get("T").props.label, "tri")
+  dbl(110, 110)
+  assert.equal(texts().length, 1)
+  assert.equal(ed.editing.field, "text")
+  assert.notEqual(ed.editing.id, "T")
+})
+
+test("double-click in an ellipse's bounding-box corner starts standalone text", () => {
+  const { ed, dbl, texts } = emptyBoard(geo("E", "ellipse", 100, 100, 200, 200))
+  dbl(110, 110)
+  assert.equal(texts().length, 1)
+  assert.equal(ed.editing.id, texts()[0].id)
+  assert.equal(ed.editing.field, "text")
+  assert.equal(ed.store.get("E").props.label, undefined)
+})
+
+test("double-click on blank canvas starts standalone text", () => {
+  const { ed, dbl, texts } = emptyBoard(geo("R", "rectangle", 100, 100, 200, 100))
+  dbl(600, 400)
+  assert.equal(texts().length, 1)
+  assert.equal(ed.editing.id, texts()[0].id)
+  assert.equal(ed.editing.field, "text")
+})
+
+test("double-click in overlapping empty rectangles edits the topmost one", () => {
+  const { ed, dbl } = emptyBoard(geo("low", "rectangle", 100, 100, 200, 200, 1), geo("high", "rectangle", 200, 200, 200, 200, 2))
+  dbl(250, 250)
+  assert.equal(ed.editing.id, "high")
+  ed._commitText()
+  dbl(150, 150)
+  assert.equal(ed.editing.id, "low")
+})
+
+test("double-click on text inside an empty rectangle still edits that text", () => {
+  const { ed, dbl, texts } = emptyBoard(geo("R", "rectangle", 0, 0, 400, 300, 1), text("T", 100, 100, "hi"))
+  dbl(105, 110)
+  assert.equal(ed.editing.id, "T")
+  assert.equal(ed.editing.field, "text")
+  assert.equal(texts().length, 1)
+})
+
+test("single click inside an empty unfilled rectangle still selects nothing", () => {
+  const { ed, down, up } = emptyBoard(geo("R", "rectangle", 100, 100, 200, 100))
+  down(200, 150)
+  up(200, 150)
+  assert.equal(ed.selection.size, 0)
+  assert.equal(ed.editing, null)
+  down(100, 150)
+  up(100, 150)
+  assert.deepEqual([...ed.selection], ["R"])
+})
+
+test("hitTest ignores the interior of an unfilled rectangle", () => {
+  const { ed } = emptyBoard(geo("R", "rectangle", 100, 100, 200, 100))
+  assert.equal(ed.hitTest(200, 150), null)
+  assert.equal(ed.hitTest(100, 150).id, "R")
+})

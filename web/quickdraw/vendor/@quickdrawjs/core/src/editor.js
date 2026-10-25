@@ -7,7 +7,7 @@ import { Store, newId } from './store.js'
 import { themeOf, SIZES, FONT_SIZES, FONTS, GEO_IDS, COLOR_IDS, GRID_IDS, GRID_STEP, GRID_BAND, GRID_MAJOR, HEAD_DEFAULTS } from './palette.js'
 import {
   localBounds, pageBounds, toLocal, toPage, drawShape, hitShape, marqueeHits,
-  scaleShape, textLayout, noteLayout, NOTE_W, resetTextLayouts, lineGeometry, withLineGeometry,
+  scaleShape, textLayout, noteLayout, NOTE_W, resetTextLayouts, lineGeometry, withLineGeometry, containsShape,
 } from './shapes.js'
 import { bindingAt, withEndpoint, mapBindingTargets } from './bindings.js'
 import { boundsUnion, boundsExpand, boundsContain, clamp, rotWith } from './geometry.js'
@@ -488,6 +488,14 @@ export class Editor {
     const list = this.shapesSorted()
     for (let i = list.length - 1; i >= 0; i--) {
       if (hitShape(list[i], px, py, tol, this.store)) return list[i]
+    }
+    return null
+  }
+  _geoInteriorAt(px, py) {
+    const list = this.shapesSorted()
+    const pt = { x: px, y: py }
+    for (let i = list.length - 1; i >= 0; i--) {
+      if (list[i].type === 'geo' && containsShape(list[i], pt)) return list[i]
     }
     return null
   }
@@ -1355,7 +1363,7 @@ export class Editor {
     if (e.type === 'dblclick' && this._lastPtr && this._lastPtr !== 'mouse') return
     const s = this._evPoint(e)
     const p = this.screenToPage(s.x, s.y)
-    const hit = this.hitTest(p.x, p.y)
+    const hit = this.hitTest(p.x, p.y) || this._geoInteriorAt(p.x, p.y)
     if (hit) {
       // the second click of a double-click already opened this text: select it all
       if (this.editing && this.editing.id === hit.id) { this.editing.textarea.select(); return }
